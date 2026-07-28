@@ -1,12 +1,13 @@
-# Deploy em produção - VPS 187.77.53.197
+# Deploy em produção - VPS 76.13.175.38
 
 Guia passo a passo para subir o MKGameCreator no servidor, sem Docker
 (instalação direta: Node.js + PostgreSQL nativo + PM2 + NGINX).
 
-Este servidor já hospeda outro app (`treino.nexux360.com.br`, portas 3000 e
-8080). O MKGameCreator usa portas diferentes (3001 e 8081) para conviver com
-ele sem conflito - se algum dia isso mudar, ajuste as portas nos arquivos
-`prod/ecosystem.config.js` e `prod/nginx/*.conf` e refaça os passos 9 e 10.
+O MKGameCreator usa as portas 3001 (frontend) e 8081 (backend) em vez das
+mais comuns 3000/8080, para evitar conflito caso este servidor já tenha ou
+venha a ter outra aplicação Node rodando. Se precisar mudar, ajuste as
+portas nos arquivos `prod/ecosystem.config.js` e `prod/nginx/*.conf` e
+refaça os passos 9 e 10.
 
 ## Arquitetura
 
@@ -51,24 +52,24 @@ código usado pelos dois processos, sem precisar duplicar nada.
 > é seguro para uso público real** até a autenticação ser implementada.
 
 Pré-requisito: os domínios `mkgamecreator.unifyhub.com.br` e
-`apimkgamecreator.unifyhub.com.br` já apontam (registro A) para
-`187.77.53.197`.
+`apimkgamecreator.unifyhub.com.br` já apontam (registro A no Cloudflare) para
+`76.13.175.38`.
 
 ---
 
 ## 1. Acessar o servidor
 
 ```bash
-ssh root@187.77.53.197
+ssh root@76.13.175.38
 ```
 
 ## 2. Node.js e npm
 
-Se este servidor já roda o `treino.nexux360.com.br`, o Node.js já está
-instalado - confirme e pule para o passo 3:
+Se este servidor já tiver Node.js instalado (por outro app), confirme a
+versão e pule para o passo 3:
 
 ```bash
-node -v   # confirme que é v20.6+ (precisa do --env-file nativo) - o treino usa v24.x
+node -v   # confirme que é v20.6+ (precisa do --env-file nativo, usado no passo 9)
 ```
 
 Se não estiver instalado:
@@ -88,8 +89,8 @@ mais nada além do que já vem com o Node.
 
 ## 3. PostgreSQL
 
-Se já estiver instalado (por causa do treino), pule a instalação e só crie o
-usuário/banco novos abaixo.
+Se já estiver instalado (por outro app neste servidor), pule a instalação e
+só crie o usuário/banco novos abaixo.
 
 ```bash
 sudo apt install -y postgresql postgresql-contrib
@@ -113,7 +114,7 @@ postgresql://mkgamecreator:SENHA_FORTE_AQUI@localhost:5432/mkgamecreator?schema=
 
 ## 4. PM2 (gerenciador de processos)
 
-Se já estiver instalado (por causa do treino), pule.
+Se já estiver instalado (por outro app neste servidor), pule.
 
 ```bash
 sudo npm install -g pm2
@@ -253,7 +254,8 @@ pm2 status
 ```
 
 Configurar o PM2 para iniciar junto com o servidor (sobrevive a reboot - só
-precisa fazer isso uma vez por servidor; se o treino já fez isso, pule):
+precisa fazer isso uma vez por servidor; se você já rodou isso antes neste
+servidor, pule):
 
 ```bash
 pm2 save
@@ -276,8 +278,8 @@ sudo nginx -t
 sudo systemctl reload nginx
 ```
 
-> Não remova o site `default` nem os sites do treino aqui - este servidor
-> hospeda os dois apps.
+> Não remova o site `default` nem outros sites que já existam neste
+> servidor.
 
 Neste ponto, `http://mkgamecreator.unifyhub.com.br` e
 `http://apimkgamecreator.unifyhub.com.br` já devem funcionar (ainda sem
@@ -294,8 +296,9 @@ O certbot edita os arquivos em `/etc/nginx/sites-available/` automaticamente,
 adicionando o bloco `listen 443 ssl` e o redirect de HTTP para HTTPS. Não é
 necessário editar nada manualmente.
 
-Testar a renovação automática (se o treino já tem o timer instalado, ele já
-cobre os certificados novos também):
+Testar a renovação automática (o certbot instala o timer na primeira vez que
+roda neste servidor; se já foi instalado antes, ele cobre os certificados
+novos também):
 
 ```bash
 sudo certbot renew --dry-run
@@ -379,6 +382,6 @@ sudo nginx -t
 # status do postgres
 sudo systemctl status postgresql
 
-# ver quem esta usando cada porta, se suspeitar de conflito com o treino
-sudo ss -tlnp | grep -E ':(3001|8081|3000|8080)\b'
+# ver quem esta usando cada porta, se suspeitar de conflito com outro app
+sudo ss -tlnp | grep -E ':(3001|8081)\b'
 ```
