@@ -223,10 +223,18 @@ npm ci
 npm run build -w backend
 
 set -a && source backend/.env && set +a
-cd backend && npx --no-install prisma migrate deploy && cd ..
+(cd backend && npx --no-install prisma migrate deploy)
 
 npm run build -w web
 ```
+
+> O `(cd backend && ...)` acima usa parênteses de propósito - isso roda num
+> subshell, então o diretório atual do terminal não muda depois do comando.
+> Evite `cd backend && ... && cd ..`: como existem dois caminhos válidos para
+> "backend" nesta estrutura (o symlink `/var/www/mkgamecreator/backend` e a
+> pasta real `app/backend`), o `cd ..` pode devolver pra um lugar diferente
+> do esperado dependendo de qual dos dois você usou pra entrar - o bash
+> mantém o caminho lógico (não resolvido), não o caminho físico.
 
 > O pacote `prisma` não fica com o binário em `node_modules/.bin` na raiz
 > do monorepo - ele fica em `backend/node_modules/.bin`. O `npx` só procura
@@ -342,7 +350,7 @@ npm ci
 npm run build -w backend
 
 set -a && source backend/.env && set +a
-cd backend && npx --no-install prisma migrate deploy && cd ..   # só se houver migration nova
+(cd backend && npx --no-install prisma migrate deploy)   # só se houver migration nova
 
 npm run build -w web
 
