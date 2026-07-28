@@ -61,7 +61,7 @@ set -a
 # shellcheck disable=SC1091
 source "$BACKEND_DIR/.env"
 set +a
-npx prisma migrate deploy --schema=backend/prisma/schema.prisma
+npx --no-install prisma migrate deploy --schema=backend/prisma/schema.prisma
 
 log "4/5 - Buildando o frontend (Next.js)"
 npm run build -w web

@@ -179,16 +179,13 @@ As variáveis `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY` do `.env.example` não
 são necessárias ainda - auth/storage reais não estão integrados (ver nota no
 topo deste arquivo).
 
-O install e o build acontecem juntos com o frontend, na raiz do monorepo -
-veja o passo 8. Depois disso, rode as migrations do Prisma:
+> Não rode `npx prisma` ainda neste passo - o `node_modules` do monorepo só
+> existe depois do `npm ci` no passo 8. Rodar `npx prisma` antes disso faz o
+> npx baixar o `prisma@latest` (hoje a major 7, que quebra este schema) em
+> vez de usar a versão fixada em `backend/package.json` (6.19.x). O passo 8
+> cobre install, build e migrations juntos, na ordem certa.
 
-```bash
-cd /var/www/mkgamecreator/app
-set -a && source backend/.env && set +a
-npx prisma migrate deploy --schema=backend/prisma/schema.prisma
-```
-
-## 8. Configurar e buildar o frontend
+## 8. Configurar o frontend, instalar, buildar e migrar
 
 ```bash
 cd /var/www/mkgamecreator/frontend
@@ -214,12 +211,20 @@ API_INTERNAL_URL=http://127.0.0.1:8081
 > `next start` - não precisa de nenhuma configuração extra no PM2 para isso
 > (diferente do backend).
 
-Instalar as dependências do monorepo (workspaces) e buildar os dois lados:
+Agora, com os dois `.env` já criados, instale as dependências do monorepo
+(workspaces), builde os dois lados e rode as migrations - **nesta ordem**
+(o `npm run build -w backend` já roda `prisma generate` internamente, e o
+`--no-install` garante que o `npx` use a versão do Prisma fixada no
+`package.json` em vez de tentar baixar a mais recente):
 
 ```bash
 cd /var/www/mkgamecreator/app
 npm ci
 npm run build -w backend
+
+set -a && source backend/.env && set +a
+npx --no-install prisma migrate deploy --schema=backend/prisma/schema.prisma
+
 npm run build -w web
 ```
 
@@ -330,7 +335,7 @@ npm ci
 npm run build -w backend
 
 set -a && source backend/.env && set +a
-npx prisma migrate deploy --schema=backend/prisma/schema.prisma   # só se houver migration nova
+npx --no-install prisma migrate deploy --schema=backend/prisma/schema.prisma   # só se houver migration nova
 
 npm run build -w web
 
