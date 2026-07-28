@@ -61,7 +61,12 @@ set -a
 # shellcheck disable=SC1091
 source "$BACKEND_DIR/.env"
 set +a
-npx --no-install prisma migrate deploy --schema=backend/prisma/schema.prisma
+
+# O pacote "prisma" nao fica hoisted em node_modules/.bin na raiz do
+# monorepo (fica em backend/node_modules/.bin) - o npx so procura
+# node_modules/.bin subindo a partir do cwd, nunca descendo em
+# subpastas, entao o comando precisa rodar de dentro de backend/.
+(cd "$BACKEND_DIR" && npx --no-install prisma migrate deploy)
 
 log "4/5 - Buildando o frontend (Next.js)"
 npm run build -w web

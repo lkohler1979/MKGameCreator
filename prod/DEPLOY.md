@@ -223,10 +223,17 @@ npm ci
 npm run build -w backend
 
 set -a && source backend/.env && set +a
-npx --no-install prisma migrate deploy --schema=backend/prisma/schema.prisma
+cd backend && npx --no-install prisma migrate deploy && cd ..
 
 npm run build -w web
 ```
+
+> O pacote `prisma` não fica com o binário em `node_modules/.bin` na raiz
+> do monorepo - ele fica em `backend/node_modules/.bin`. O `npx` só procura
+> `node_modules/.bin` **subindo** a partir do diretório atual, nunca descendo
+> em subpastas - por isso o `cd backend` antes do `npx` é obrigatório (rodar
+> de `/var/www/mkgamecreator/app` direto dá `prisma: not found`, mesmo com
+> tudo instalado corretamente).
 
 ## 9. Subir os processos com o PM2
 
@@ -335,7 +342,7 @@ npm ci
 npm run build -w backend
 
 set -a && source backend/.env && set +a
-npx --no-install prisma migrate deploy --schema=backend/prisma/schema.prisma   # só se houver migration nova
+cd backend && npx --no-install prisma migrate deploy && cd ..   # só se houver migration nova
 
 npm run build -w web
 
