@@ -16,8 +16,8 @@ Internet
   v
 NGINX (porta 80/443)
   |
-  |-- mkgamecreator.nexux360.com.br      -> 127.0.0.1:3001 (Next.js, gerenciado pelo PM2)
-  |-- apimkgamecreator.nexux360.com.br   -> 127.0.0.1:8081 (Fastify, gerenciado pelo PM2)
+  |-- mkgamecreator.unifyhub.com.br      -> 127.0.0.1:3001 (Next.js, gerenciado pelo PM2)
+  |-- apimkgamecreator.unifyhub.com.br   -> 127.0.0.1:8081 (Fastify, gerenciado pelo PM2)
   v
 PostgreSQL (local, porta 5432, só acesso via localhost)
 ```
@@ -50,8 +50,8 @@ código usado pelos dois processos, sem precisar duplicar nada.
 > jogos desse mesmo usuário. Isso é aceitável para uma demo/teste, mas **não
 > é seguro para uso público real** até a autenticação ser implementada.
 
-Pré-requisito: os domínios `mkgamecreator.nexux360.com.br` e
-`apimkgamecreator.nexux360.com.br` já apontam (registro A) para
+Pré-requisito: os domínios `mkgamecreator.unifyhub.com.br` e
+`apimkgamecreator.unifyhub.com.br` já apontam (registro A) para
 `187.77.53.197`.
 
 ---
@@ -196,7 +196,7 @@ sudo nano .env.production
 Preencha:
 
 ```
-NEXT_PUBLIC_API_URL=https://apimkgamecreator.nexux360.com.br
+NEXT_PUBLIC_API_URL=https://apimkgamecreator.unifyhub.com.br
 API_INTERNAL_URL=http://127.0.0.1:8081
 ```
 
@@ -279,15 +279,15 @@ sudo systemctl reload nginx
 > Não remova o site `default` nem os sites do treino aqui - este servidor
 > hospeda os dois apps.
 
-Neste ponto, `http://mkgamecreator.nexux360.com.br` e
-`http://apimkgamecreator.nexux360.com.br` já devem funcionar (ainda sem
+Neste ponto, `http://mkgamecreator.unifyhub.com.br` e
+`http://apimkgamecreator.unifyhub.com.br` já devem funcionar (ainda sem
 HTTPS).
 
 ## 11. Ativar HTTPS com Certbot
 
 ```bash
-sudo certbot --nginx -d mkgamecreator.nexux360.com.br
-sudo certbot --nginx -d apimkgamecreator.nexux360.com.br
+sudo certbot --nginx -d mkgamecreator.unifyhub.com.br
+sudo certbot --nginx -d apimkgamecreator.unifyhub.com.br
 ```
 
 O certbot edita os arquivos em `/etc/nginx/sites-available/` automaticamente,
@@ -304,12 +304,12 @@ sudo certbot renew --dry-run
 ## 12. Testar
 
 ```bash
-curl -I https://mkgamecreator.nexux360.com.br
-curl -I https://apimkgamecreator.nexux360.com.br
-curl https://apimkgamecreator.nexux360.com.br/health   # deve retornar {"status":"ok","service":"mkgamecreator-backend"}
+curl -I https://mkgamecreator.unifyhub.com.br
+curl -I https://apimkgamecreator.unifyhub.com.br
+curl https://apimkgamecreator.unifyhub.com.br/health   # deve retornar {"status":"ok","service":"mkgamecreator-backend"}
 ```
 
-Abra `https://mkgamecreator.nexux360.com.br` no navegador e percorra o fluxo
+Abra `https://mkgamecreator.unifyhub.com.br` no navegador e percorra o fluxo
 completo (Splash → Home → Novo Jogo → upload de um desenho → Escolher
 Personagem → Gerar Jogo → Jogar) para confirmar que backend, banco e uploads
 estão funcionando de ponta a ponta.
