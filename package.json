@@ -1,0 +1,12 @@
+{
+  "name": "mkgamecreator",
+  "private": true,
+  "version": "0.0.1",
+  "workspaces": [
+    "apps/*",
+    "backend"
+  ],
+  "scripts": {
+    "dev": "docker compose up --build"
+  }
+}

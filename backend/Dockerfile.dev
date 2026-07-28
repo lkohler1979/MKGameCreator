@@ -1,0 +1,18 @@
+FROM node:20-alpine
+
+# libc6-compat + openssl sao exigidos pelo motor do Prisma em Alpine
+RUN apk add --no-cache openssl libc6-compat
+
+WORKDIR /app
+
+COPY package.json ./
+COPY prisma ./prisma
+
+RUN npm install
+RUN DATABASE_URL="postgresql://placeholder:placeholder@localhost:5432/placeholder" npx prisma generate
+
+COPY . .
+
+EXPOSE 3333
+
+CMD ["npm", "run", "dev"]

@@ -1,0 +1,36 @@
+# dependencies
+node_modules/
+
+# next.js
+apps/web/.next/
+apps/web/out/
+
+# backend build
+backend/dist/
+backend/uploads/
+
+# env
+.env
+.env.local
+*.env.local
+!.env.example
+!**/.env.example
+
+# prisma
+backend/prisma/migrations/dev.db
+
+# logs
+npm-debug.log*
+*.log
+
+# os
+.DS_Store
+Thumbs.db
+
+# editor
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# docker volumes data (if bind-mounted locally)
+.docker-data/

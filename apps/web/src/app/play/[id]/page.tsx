@@ -1,0 +1,456 @@
+"use client";
+
+import { use, useEffect, useRef, useState } from "react";
+import Link from "next/link";
+import confetti from "canvas-confetti";
+import {
+  ArrowDown,
+  ArrowLeft,
+  ArrowUp,
+  Coins,
+  Expand,
+  Heart,
+  Link as LinkIcon,
+  Pencil,
+  Plus,
+  RotateCcw,
+  Share2,
+  Star,
+  Volume2,
+  VolumeX,
+  X,
+} from "lucide-react";
+
+import type { GameEngine, GameEngineOptions } from "@/game/game-engine";
+import { createGameSession, getGame, type GameDetail } from "@/lib/api";
+import { PRESET_CHARACTERS } from "@/lib/preset-characters";
+import { rasterizeEmoji } from "@/lib/rasterize-emoji";
+
+const START_LIVES = 3;
+
+function resolveTextureSource(sprite: GameDetail["sprite"]) {
+  if (sprite.source === "DRAWING") return sprite.spriteImageUrl;
+
+  const presetId = sprite.spriteImageUrl.replace("preset:", "");
+  const preset = PRESET_CHARACTERS.find((item) => item.id === presetId);
+  return rasterizeEmoji(preset?.emoji ?? "🎮");
+}
+
+export default function PlayPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params);
+
+  const containerRef = useRef<HTMLDivElement>(null);
+  const gameRef = useRef<GameEngine | null>(null);
+  const resultSavedRef = useRef(false);
+
+  const [gameData, setGameData] = useState<GameDetail | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [coins, setCoins] = useState(0);
+  const [lives, setLives] = useState(START_LIVES);
+  const [result, setResult] = useState<"win" | "lose" | null>(null);
+  const [feedback, setFeedback] = useState<string | null>(null);
+  const [muted, setMuted] = useState(false);
+
+  useEffect(() => {
+    getGame(id)
+      .then(setGameData)
+      .catch((error) => setLoadError(error instanceof Error ? error.message : "Erro ao carregar o jogo"));
+  }, [id]);
+
+  useEffect(() => {
+    if (!gameData || !containerRef.current) return;
+
+    let cancelled = false;
+
+    async function saveSession(completed: boolean) {
+      if (resultSavedRef.current || !gameRef.current) return;
+      resultSavedRef.current = true;
+      try {
+        await createGameSession(id, {
+          completed,
+          timeSeconds: gameRef.current.getElapsedSeconds(),
+          coinsCollected: gameRef.current.getCoins(),
+          livesRemaining: gameRef.current.getLives(),
+        });
+      } catch {
+        // resultado da partida é secundário à experiência de jogo; falha aqui não deve travar a UI
+      }
+    }
+
+    // Ambos os motores implementam GameEngine, mas TS não unifica os dois
+    // `static create` diretamente — a assinatura comum é explicitada aqui.
+    type EngineClass = { create(options: GameEngineOptions): Promise<GameEngine> };
+    const engineModule: Promise<EngineClass> =
+      gameData.templateType === "MAZE"
+        ? import("@/game/maze-game").then((mod) => mod.MazeGame as unknown as EngineClass)
+        : import("@/game/platform-game").then((mod) => mod.PlatformGame as unknown as EngineClass);
+
+    engineModule
+      .then((Engine) =>
+        Engine.create({
+          container: containerRef.current!,
+          sceneConfig: gameData.sceneConfig,
+          textureSource: resolveTextureSource(gameData.sprite),
+          onCoinsChange: setCoins,
+          onLivesChange: setLives,
+          onWin: () => {
+            setResult("win");
+            void saveSession(true);
+          },
+          onLose: () => {
+            setResult("lose");
+            void saveSession(false);
+          },
+        }),
+      )
+      .then((game) => {
+        if (cancelled) {
+          game.destroy();
+          return;
+        }
+        gameRef.current = game;
+      });
+
+    return () => {
+      cancelled = true;
+      gameRef.current?.destroy();
+      gameRef.current = null;
+    };
+  }, [gameData, id]);
+
+  useEffect(() => {
+    const isMaze = gameData?.templateType === "MAZE";
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "ArrowLeft") gameRef.current?.moveLeft();
+      if (event.key === "ArrowRight") gameRef.current?.moveRight();
+      // ArrowUp cobre os dois motores: pula na Plataforma, anda pra cima no
+      // Labirinto — o método do motor inativo é sempre um no-op.
+      if (event.key === "ArrowUp") gameRef.current?.moveUp();
+      if (event.key === "ArrowDown") gameRef.current?.moveDown();
+      if (event.key === "ArrowUp" || event.key === " ") gameRef.current?.jump();
+    }
+    function handleKeyUp(event: KeyboardEvent) {
+      if (event.key === "ArrowLeft" || event.key === "ArrowRight") gameRef.current?.stopMove();
+      // Só solta o movimento no keyup de cima/baixo quando é o Labirinto —
+      // na Plataforma isso zeraria o moveDirection horizontal por engano.
+      if (isMaze && (event.key === "ArrowUp" || event.key === "ArrowDown")) gameRef.current?.stopMove();
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+    };
+  }, [gameData]);
+
+  useEffect(() => {
+    if (result === "win") {
+      confetti({ particleCount: 120, spread: 80, origin: { y: 0.6 } });
+    }
+  }, [result]);
+
+  async function handleRestart() {
+    resultSavedRef.current = false;
+    setResult(null);
+    setFeedback(null);
+    setCoins(0);
+    setLives(START_LIVES);
+    await gameRef.current?.reset();
+  }
+
+  function handleToggleMute() {
+    if (!gameRef.current) return;
+    setMuted(gameRef.current.toggleMute());
+  }
+
+  function getShareUrl() {
+    return `${window.location.origin}/play/${id}`;
+  }
+
+  async function handleCopyLink() {
+    try {
+      await navigator.clipboard.writeText(getShareUrl());
+      setFeedback("Link copiado!");
+    } catch {
+      setFeedback("Não foi possível copiar o link.");
+    }
+    setTimeout(() => setFeedback(null), 2000);
+  }
+
+  async function handleShare() {
+    const shareData = {
+      title: gameData?.name ?? "Meu jogo",
+      text: `Joguei "${gameData?.name}" no MK Game Creator! 🎮`,
+      url: getShareUrl(),
+    };
+
+    if (navigator.share) {
+      try {
+        await navigator.share(shareData);
+      } catch {
+        // usuário cancelou o compartilhamento nativo — não precisa de feedback de erro
+      }
+    } else {
+      await handleCopyLink();
+    }
+  }
+
+  const totalCoins = gameData?.sceneConfig.coins.length ?? 0;
+  const starCount = totalCoins > 0 ? Math.max(1, Math.round((coins / totalCoins) * 5)) : 5;
+
+  const editHref =
+    gameData?.sprite.source === "DRAWING"
+      ? `/new-game/character?${new URLSearchParams({
+          sprite: gameData.sprite.spriteImageUrl,
+          ...(gameData.sprite.originalImageUrl ? { original: gameData.sprite.originalImageUrl } : {}),
+        }).toString()}`
+      : "/new-game/character";
+
+  if (loadError) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-background text-center">
+        <p className="text-sm text-muted-foreground">{loadError}</p>
+        <Link href="/home" className="text-sm font-semibold text-primary">
+          Voltar para Home
+        </Link>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative flex min-h-screen flex-col bg-[#8ecae6]">
+      <div className="absolute inset-x-0 top-0 z-10 flex items-center justify-between px-4 py-3">
+        <div className="flex items-center gap-2">
+          {Array.from({ length: lives }, (_, index) => (
+            <Heart key={index} className="size-6" fill="#ef4444" stroke="#ef4444" />
+          ))}
+        </div>
+        <div className="flex items-center gap-1 rounded-full bg-white/80 px-3 py-1">
+          <Coins className="size-4 text-cta" />
+          <span className="font-heading text-sm font-bold">{coins}</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            aria-label={muted ? "Ativar som" : "Silenciar som"}
+            onClick={handleToggleMute}
+            className="flex size-9 items-center justify-center rounded-full bg-white/80 text-foreground"
+          >
+            {muted ? <VolumeX className="size-5" /> : <Volume2 className="size-5" />}
+          </button>
+          <Link
+            href="/home"
+            aria-label="Sair do jogo"
+            className="flex size-9 items-center justify-center rounded-full bg-white/80 text-foreground"
+          >
+            <X className="size-5" />
+          </Link>
+        </div>
+      </div>
+
+      <div className="flex flex-1 items-center justify-center p-4 pt-16">
+        <div
+          className="aspect-[25/14] w-full max-w-4xl overflow-hidden rounded-2xl shadow-lg animate-fade-in-up"
+          ref={containerRef}
+        />
+      </div>
+
+      <div className="flex items-center justify-between px-4 pb-6">
+        {gameData?.templateType === "MAZE" ? (
+          <div className="grid grid-cols-3 grid-rows-3 gap-1.5">
+            <div />
+            <button
+              type="button"
+              aria-label="Mover para cima"
+              onPointerDown={() => gameRef.current?.moveUp()}
+              onPointerUp={() => gameRef.current?.stopMove()}
+              onPointerLeave={() => gameRef.current?.stopMove()}
+              className="flex size-12 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-md active:scale-95"
+            >
+              <ArrowUp className="size-5" />
+            </button>
+            <div />
+            <button
+              type="button"
+              aria-label="Mover para esquerda"
+              onPointerDown={() => gameRef.current?.moveLeft()}
+              onPointerUp={() => gameRef.current?.stopMove()}
+              onPointerLeave={() => gameRef.current?.stopMove()}
+              className="flex size-12 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-md active:scale-95"
+            >
+              <ArrowLeft className="size-5" />
+            </button>
+            <div />
+            <button
+              type="button"
+              aria-label="Mover para direita"
+              onPointerDown={() => gameRef.current?.moveRight()}
+              onPointerUp={() => gameRef.current?.stopMove()}
+              onPointerLeave={() => gameRef.current?.stopMove()}
+              className="flex size-12 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-md active:scale-95"
+            >
+              <ArrowLeft className="size-5 rotate-180" />
+            </button>
+            <div />
+            <button
+              type="button"
+              aria-label="Mover para baixo"
+              onPointerDown={() => gameRef.current?.moveDown()}
+              onPointerUp={() => gameRef.current?.stopMove()}
+              onPointerLeave={() => gameRef.current?.stopMove()}
+              className="flex size-12 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-md active:scale-95"
+            >
+              <ArrowDown className="size-5" />
+            </button>
+            <div />
+          </div>
+        ) : (
+          <>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                aria-label="Mover para esquerda"
+                onPointerDown={() => gameRef.current?.moveLeft()}
+                onPointerUp={() => gameRef.current?.stopMove()}
+                onPointerLeave={() => gameRef.current?.stopMove()}
+                className="flex size-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-md active:scale-95"
+              >
+                <ArrowLeft className="size-6" />
+              </button>
+              <button
+                type="button"
+                aria-label="Mover para direita"
+                onPointerDown={() => gameRef.current?.moveRight()}
+                onPointerUp={() => gameRef.current?.stopMove()}
+                onPointerLeave={() => gameRef.current?.stopMove()}
+                className="flex size-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-md active:scale-95"
+              >
+                <ArrowLeft className="size-6 rotate-180" />
+              </button>
+            </div>
+
+            <button
+              type="button"
+              aria-label="Pular"
+              onPointerDown={() => gameRef.current?.jump()}
+              className="flex size-16 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-md active:scale-95"
+            >
+              <ArrowLeft className="size-7 rotate-90" />
+            </button>
+          </>
+        )}
+
+        <div className="flex gap-2">
+          <button
+            type="button"
+            aria-label="Reiniciar"
+            onClick={handleRestart}
+            className="flex size-10 items-center justify-center rounded-xl bg-white/80 text-foreground shadow-sm"
+          >
+            <RotateCcw className="size-4" />
+          </button>
+          <button
+            type="button"
+            aria-label="Tela cheia"
+            onClick={() => gameRef.current?.requestFullscreen()}
+            className="flex size-10 items-center justify-center rounded-xl bg-white/80 text-foreground shadow-sm"
+          >
+            <Expand className="size-4" />
+          </button>
+        </div>
+      </div>
+
+      {result === "win" && (
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/50 p-4">
+          <div className="flex w-full max-w-sm flex-col items-center gap-4 rounded-2xl bg-card p-6 text-center animate-fade-in-up">
+            <h2 className="font-heading text-2xl font-bold text-foreground">Parabéns! 🎉</h2>
+            <p className="text-sm text-muted-foreground">Você criou seu primeiro jogo.</p>
+
+            <div className="flex gap-1">
+              {Array.from({ length: 5 }, (_, index) => (
+                <Star
+                  key={index}
+                  className="size-7"
+                  fill={index < starCount ? "#FFC736" : "transparent"}
+                  stroke="#FFC736"
+                />
+              ))}
+            </div>
+
+            <div className="flex w-full gap-3">
+              <div className="flex flex-1 flex-col items-center gap-0.5 rounded-xl bg-muted py-3">
+                <span className="text-xs font-semibold text-muted-foreground">Tempo</span>
+                <span className="font-heading font-bold text-foreground">
+                  {gameRef.current?.getElapsedSeconds() ?? 0}s
+                </span>
+              </div>
+              <div className="flex flex-1 flex-col items-center gap-0.5 rounded-xl bg-muted py-3">
+                <span className="text-xs font-semibold text-muted-foreground">Moedas</span>
+                <span className="font-heading font-bold text-foreground">{coins}</span>
+              </div>
+            </div>
+
+            {feedback && <p className="text-xs font-semibold text-success">{feedback}</p>}
+
+            <button
+              type="button"
+              onClick={handleShare}
+              className="flex w-full items-center justify-center gap-2 rounded-full bg-primary py-3 font-bold text-primary-foreground"
+            >
+              <Share2 className="size-4" />
+              Compartilhar
+            </button>
+            <button
+              type="button"
+              onClick={handleCopyLink}
+              className="flex w-full items-center justify-center gap-2 rounded-full border border-border py-3 font-bold text-foreground"
+            >
+              <LinkIcon className="size-4" />
+              Copiar Link
+            </button>
+
+            <div className="flex w-full gap-3">
+              <Link
+                href={editHref}
+                className="flex flex-1 items-center justify-center gap-1.5 rounded-full border border-border py-2.5 text-sm font-semibold text-foreground"
+              >
+                <Pencil className="size-4" />
+                Editar
+              </Link>
+              <Link
+                href="/new-game"
+                className="flex flex-1 items-center justify-center gap-1.5 rounded-full border border-border py-2.5 text-sm font-semibold text-foreground"
+              >
+                <Plus className="size-4" />
+                Criar Outro
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {result === "lose" && (
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/50 p-4">
+          <div className="flex w-full max-w-xs flex-col items-center gap-4 rounded-2xl bg-card p-6 text-center animate-fade-in-up">
+            <h2 className="font-heading text-2xl font-bold text-foreground">Fim de jogo</h2>
+            <p className="text-sm text-muted-foreground">
+              Moedas: {coins} · Tempo: {gameRef.current?.getElapsedSeconds() ?? 0}s
+            </p>
+            <button
+              type="button"
+              onClick={handleRestart}
+              className="w-full rounded-full bg-primary py-3 font-bold text-primary-foreground"
+            >
+              Reiniciar
+            </button>
+            <Link href="/home" className="text-sm font-semibold text-muted-foreground">
+              Voltar para Home
+            </Link>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
