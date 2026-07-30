@@ -11,7 +11,7 @@ export type SceneConfig = {
   sky?: string;
   coins: { x: number; y: number; imageUrl?: string }[];
   obstacles: {
-    type: "hazard" | "hop";
+    type: "hazard" | "hop" | "enemy" | "destructible" | "dynamic";
     x: number;
     y: number;
     width: number;
@@ -24,11 +24,13 @@ export type SceneConfig = {
 
 export type TaggedShape = DetectedShape & { role: ElementRole };
 
-const ELEMENT_START_X = 150;
-const ELEMENT_END_X = FLAG_X - 60;
-const COIN_HIGH_Y = GROUND_Y - 150;
-const COIN_LOW_Y = GROUND_Y - 40;
-const OBSTACLE_MIN_SIZE = 28;
+// Exportadas pra apps/web/src/app/new-game/edit/page.tsx reaproveitar o mesmo
+// range de posição/tamanho da marcação automática ao arrastar/redimensionar.
+export const ELEMENT_START_X = 150;
+export const ELEMENT_END_X = FLAG_X - 60;
+export const COIN_HIGH_Y = GROUND_Y - 150;
+export const COIN_LOW_Y = GROUND_Y - 40;
+export const OBSTACLE_MIN_SIZE = 28;
 const OBSTACLE_MAX_SIZE = 64;
 const OBSTACLE_MAX_SCALE = 3;
 const POWERUP_TYPES: PowerupType[] = ["shield", "extra_life", "double_coins"];
@@ -81,10 +83,26 @@ export function buildSceneConfigFromShapes(
       continue;
     }
 
-    if (shape.role === "pular" || shape.role === "machuca") {
+    if (
+      shape.role === "pular" ||
+      shape.role === "machuca" ||
+      shape.role === "inimigo" ||
+      shape.role === "destrutivel" ||
+      shape.role === "dinamico"
+    ) {
       const { width, height } = normalizeObstacleSize(shape.width, shape.height);
+      const type =
+        shape.role === "machuca"
+          ? "hazard"
+          : shape.role === "inimigo"
+            ? "enemy"
+            : shape.role === "destrutivel"
+              ? "destructible"
+              : shape.role === "dinamico"
+                ? "dynamic"
+                : "hop";
       obstacles.push({
-        type: shape.role === "machuca" ? "hazard" : "hop",
+        type,
         x,
         y: GROUND_Y - height / 2,
         width,

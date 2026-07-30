@@ -36,5 +36,5 @@ Serviços (portas escolhidas para não colidir com outros projetos já rodando n
 
 Código de `apps/web` e `backend` é montado por volume, então o hot-reload funciona editando os arquivos localmente — não precisa reconstruir a imagem a cada mudança (só ao alterar `package.json`/`Dockerfile.dev`).
 
-Supabase Auth/Storage ainda não estão integrados (dependem de um projeto Supabase real) — preencher `SUPABASE_URL`/`SUPABASE_ANON_KEY`/`SUPABASE_SERVICE_ROLE_KEY` nos `.env` quando o projeto for criado (Sprint 1 do `docs/TASKS.md`).
+Autenticação real (e-mail+senha, sessão via cookie) já está implementada — crie uma conta em `/signup` antes de usar o resto do app, o usuário fixo de desenvolvimento (`dev@local`) não existe mais. Login social (Google/Microsoft) e Supabase Storage ainda não estão integrados — preencher `SUPABASE_URL`/`SUPABASE_ANON_KEY`/`SUPABASE_SERVICE_ROLE_KEY` nos `.env` quando o projeto for criado.
 

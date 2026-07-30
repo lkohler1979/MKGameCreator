@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { Bell, Gamepad2, Home, User } from "lucide-react";
 
+import { LogoutButton } from "@/components/logout-button";
+
 const FOOTER_LINKS = ["Ajuda", "Sobre", "Política", "Contato"];
 
 const BOTTOM_NAV_ITEMS = [
@@ -30,9 +32,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           >
             <Bell className="size-5" />
           </button>
-          <div className="flex size-9 items-center justify-center rounded-full bg-secondary text-secondary-foreground">
-            <User className="size-5" />
-          </div>
+          <LogoutButton />
         </div>
       </header>
 

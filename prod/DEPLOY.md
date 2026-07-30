@@ -44,12 +44,15 @@ código usado pelos dois processos, sem precisar duplicar nada.
 > atualização) **não apaga** os uploads a cada deploy - `git clean` sem `-x`
 > preserva arquivos ignorados. Nada extra a fazer aqui.
 
-> **Autenticação ainda não está implementada** (login real fica para uma
-> fase futura do roadmap - ver `docs/ROADMAP.md`). Todo jogo criado em
-> produção pertence a um único usuário fixo de desenvolvimento (`dev@local`).
-> Ou seja: qualquer pessoa que acessar o site consegue ver/criar/apagar os
-> jogos desse mesmo usuário. Isso é aceitável para uma demo/teste, mas **não
-> é seguro para uso público real** até a autenticação ser implementada.
+> **Autenticação real (e-mail+senha) já está implementada** desde a Fase 3
+> do roadmap - cada conta só vê/cria/apaga os próprios jogos. Login social
+> (Google/Microsoft) ainda não - os botões saem da Splash até existirem
+> credenciais OAuth reais (ver `docs/ROADMAP.md`). O link de "Compartilhar"
+> continua funcionando sem conta (rota pública de propósito).
+>
+> O usuário fixo de desenvolvimento (`dev@local`) deixou de existir - testar
+> localmente (dev ou produção) agora exige criar uma conta de verdade via
+> `/signup` antes de usar o resto do app.
 
 Pré-requisito: os domínios `mkgamecreator.unifyhub.com.br` e
 `apimkgamecreator.unifyhub.com.br` já apontam (registro A no Cloudflare) para
@@ -174,11 +177,19 @@ precisa ser `CHAVE=valor` simples, uma por linha, sem `export`):
 ```
 PORT=8081
 DATABASE_URL="postgresql://mkgamecreator:SENHA_FORTE_AQUI@localhost:5432/mkgamecreator?schema=public"
+CORS_ORIGIN=https://mkgamecreator.unifyhub.com.br
+COOKIE_DOMAIN=.unifyhub.com.br
 ```
 
-As variáveis `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY` do `.env.example` não
-são necessárias ainda - auth/storage reais não estão integrados (ver nota no
-topo deste arquivo).
+`CORS_ORIGIN` precisa ser a origem exata do frontend (sem barra no final) -
+com o cookie de sessão em jogo, `origin: true`/reflect-all vazaria dados
+autenticados pra qualquer site. `COOKIE_DOMAIN` é o domínio pai compartilhado
+pelos dois subdomínios (frontend e API) - é o que deixa o cookie de sessão
+visível também pro Next.js do lado do frontend, não só pra API que o cria.
+
+A variável `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY` do `.env.example` não é
+necessária ainda - Storage real não está integrado (auth já é real, mas via
+sessão própria, não Supabase - ver nota no topo deste arquivo).
 
 > Não rode `npx prisma` ainda neste passo - o `node_modules` do monorepo só
 > existe depois do `npm ci` no passo 8. Rodar `npx prisma` antes disso faz o

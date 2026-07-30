@@ -5,6 +5,9 @@ export type GameEngineCallbacks = {
   onLivesChange?: (lives: number) => void;
   onWin?: () => void;
   onLose?: () => void;
+  // Só usado por templates com cronômetro regressivo (ex.: Coleta de Itens) -
+  // Plataforma/Labirinto simplesmente nunca chamam.
+  onTimeChange?: (secondsRemaining: number) => void;
 };
 
 export type GameEngineOptions = GameEngineCallbacks & {

@@ -74,6 +74,34 @@ export function backgroundColorToHex([r, g, b]: [number, number, number]): strin
 }
 
 /**
+ * Cor média da própria forma (só nos pixels de primeiro plano do recorte) -
+ * usada pra sugerir automaticamente um papel via configuração de cores
+ * (color-roles.ts), sem precisar de nenhuma mudança em detectShapes.
+ */
+export function sampleShapeColor(shape: DetectedShape): [number, number, number] {
+  const { canvas } = shape;
+  const ctx = canvas.getContext("2d");
+  if (!ctx || canvas.width === 0 || canvas.height === 0) return [255, 255, 255];
+
+  const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  let r = 0;
+  let g = 0;
+  let b = 0;
+  let count = 0;
+
+  for (let pixelIndex = 0; pixelIndex < canvas.width * canvas.height; pixelIndex += 1) {
+    const offset = pixelIndex * 4;
+    if (data[offset + 3] <= ALPHA_THRESHOLD) continue;
+    r += data[offset];
+    g += data[offset + 1];
+    b += data[offset + 2];
+    count += 1;
+  }
+
+  return count > 0 ? [r / count, g / count, b / count] : [255, 255, 255];
+}
+
+/**
  * Constrói uma máscara de primeiro plano bem literal (sem IA): usa a cor de
  * fundo amostrada e marca como "fundo" (alpha 0) qualquer pixel parecido com
  * essa cor. Usada só para alimentar a detecção de formas — a remoção de fundo

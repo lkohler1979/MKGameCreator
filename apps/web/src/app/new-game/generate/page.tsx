@@ -1,8 +1,9 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Check, Gamepad2, Grid3x3 } from "lucide-react";
+import { Check, Gamepad2, Gem, Grid3x3 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { WizardHeader } from "@/components/wizard-header";
@@ -26,12 +27,26 @@ function GenerateScreenContent() {
   const source = searchParams.get("source");
   const spriteUrl = searchParams.get("spriteUrl");
   const originalUrl = searchParams.get("originalUrl") ?? undefined;
+  const existingSpriteId = searchParams.get("spriteId") ?? undefined;
   const characterName = searchParams.get("name") ?? "Meu Personagem";
 
   const [stage, setStage] = useState<"select" | "generating" | "error">("select");
   const [activeStep, setActiveStep] = useState(-1);
   const [errorMessage, setErrorMessage] = useState("");
-  const [templateType, setTemplateType] = useState<"PLATFORM" | "MAZE">("PLATFORM");
+  const [templateType, setTemplateType] = useState<"PLATFORM" | "MAZE" | "COLLECT">(
+    () => (searchParams.get("templateType") as "PLATFORM" | "MAZE" | "COLLECT" | null) ?? "PLATFORM",
+  );
+  const [hasPendingScene, setHasPendingScene] = useState(false);
+
+  useEffect(() => {
+    setHasPendingScene(sessionStorage.getItem(SCENE_CONFIG_STORAGE_KEY) !== null);
+  }, []);
+
+  function editSceneHref() {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("templateType", templateType);
+    return `/new-game/edit?${params.toString()}`;
+  }
 
   if (!source || !spriteUrl) {
     return (
@@ -60,11 +75,16 @@ function GenerateScreenContent() {
     }
 
     try {
-      const sprite = await createSprite({
-        source: source as "DRAWING" | "PRESET",
-        originalImageUrl: originalUrl,
-        spriteImageUrl: spriteUrl,
-      });
+      // Personagem já salvo (escolhido em "Meus Personagens") reaproveita o
+      // Sprite existente em vez de criar um novo com as mesmas imagens.
+      const spriteId = existingSpriteId
+        ?? (
+          await createSprite({
+            source: source as "DRAWING" | "PRESET",
+            originalImageUrl: originalUrl,
+            spriteImageUrl: spriteUrl,
+          })
+        ).id;
 
       let sceneConfig: SceneConfig | undefined;
       const pending = sessionStorage.getItem(SCENE_CONFIG_STORAGE_KEY);
@@ -78,7 +98,7 @@ function GenerateScreenContent() {
       }
 
       const game = await createGame({
-        spriteId: sprite.id,
+        spriteId,
         name: `${characterName} Run`,
         sceneConfig,
         templateType,
@@ -107,12 +127,12 @@ function GenerateScreenContent() {
               <p className="text-sm text-muted-foreground">Como você quer jogar?</p>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-3 gap-3">
               <button
                 type="button"
                 onClick={() => setTemplateType("PLATFORM")}
                 className={cn(
-                  "relative flex flex-col gap-2 rounded-2xl border-2 bg-card p-4 text-left transition-colors",
+                  "relative flex flex-col gap-1.5 rounded-2xl border-2 bg-card p-3 text-left transition-colors",
                   templateType === "PLATFORM" ? "border-primary" : "border-border",
                 )}
               >
@@ -122,11 +142,11 @@ function GenerateScreenContent() {
                   </span>
                 )}
                 <div className="flex aspect-video items-center justify-center rounded-xl bg-secondary">
-                  <Gamepad2 className="size-8 text-primary" />
+                  <Gamepad2 className="size-6 text-primary" />
                 </div>
-                <p className="font-heading font-bold text-foreground">Plataforma</p>
-                <p className="text-xs text-muted-foreground">
-                  Corra, pule e colete moedas até chegar à bandeira.
+                <p className="font-heading text-sm font-bold text-foreground">Plataforma</p>
+                <p className="text-[11px] text-muted-foreground">
+                  Corra, pule e chegue à bandeira.
                 </p>
               </button>
 
@@ -134,7 +154,7 @@ function GenerateScreenContent() {
                 type="button"
                 onClick={() => setTemplateType("MAZE")}
                 className={cn(
-                  "relative flex flex-col gap-2 rounded-2xl border-2 bg-card p-4 text-left transition-colors",
+                  "relative flex flex-col gap-1.5 rounded-2xl border-2 bg-card p-3 text-left transition-colors",
                   templateType === "MAZE" ? "border-primary" : "border-border",
                 )}
               >
@@ -144,17 +164,48 @@ function GenerateScreenContent() {
                   </span>
                 )}
                 <div className="flex aspect-video items-center justify-center rounded-xl bg-secondary">
-                  <Grid3x3 className="size-8 text-primary" />
+                  <Grid3x3 className="size-6 text-primary" />
                 </div>
-                <p className="font-heading font-bold text-foreground">Labirinto</p>
-                <p className="text-xs text-muted-foreground">
-                  Explore em 4 direções e encontre a saída.
+                <p className="font-heading text-sm font-bold text-foreground">Labirinto</p>
+                <p className="text-[11px] text-muted-foreground">
+                  Encontre a saída do labirinto.
+                </p>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setTemplateType("COLLECT")}
+                className={cn(
+                  "relative flex flex-col gap-1.5 rounded-2xl border-2 bg-card p-3 text-left transition-colors",
+                  templateType === "COLLECT" ? "border-primary" : "border-border",
+                )}
+              >
+                {templateType === "COLLECT" && (
+                  <span className="absolute right-3 top-3 flex size-5 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                    <Check className="size-3" />
+                  </span>
+                )}
+                <div className="flex aspect-video items-center justify-center rounded-xl bg-secondary">
+                  <Gem className="size-6 text-primary" />
+                </div>
+                <p className="font-heading text-sm font-bold text-foreground">Coleta de Itens</p>
+                <p className="text-[11px] text-muted-foreground">
+                  Pegue tudo antes do tempo acabar.
                 </p>
               </button>
             </div>
 
             {stage === "error" && (
               <p className="text-center text-sm font-semibold text-destructive">{errorMessage}</p>
+            )}
+
+            {hasPendingScene && (
+              <Link
+                href={editSceneHref()}
+                className="flex w-full items-center justify-center rounded-full border border-border py-3 text-sm font-semibold text-foreground"
+              >
+                Editar Cenário
+              </Link>
             )}
 
             <Button variant="default" size="xl" className="w-full" onClick={handleCreateGame}>

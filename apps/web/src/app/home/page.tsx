@@ -1,31 +1,29 @@
 import Link from "next/link";
-import { ChevronRight, Gamepad2, Play, Plus } from "lucide-react";
+import { ChevronRight, Gamepad2, Globe, Palette, Play, Plus } from "lucide-react";
 
 import { AppShell } from "@/components/app-shell";
 import { DeleteGameButton } from "@/components/delete-game-button";
-import { listGames } from "@/lib/api";
-import { PRESET_CHARACTERS } from "@/lib/preset-characters";
+import { FavoriteButton } from "@/components/favorite-button";
+import { GameThumbnail } from "@/components/game-thumbnail";
+import { VisibilityToggle } from "@/components/visibility-toggle";
+import { listGames, type LibraryTab } from "@/lib/api";
+import { cn } from "@/lib/utils";
 
-function GameThumbnail({ spriteImageUrl }: { spriteImageUrl: string }) {
-  if (spriteImageUrl.startsWith("preset:")) {
-    const presetId = spriteImageUrl.slice("preset:".length);
-    const preset = PRESET_CHARACTERS.find((item) => item.id === presetId);
-    return (
-      <div
-        className="flex aspect-video w-full items-center justify-center rounded-xl text-4xl"
-        style={{ backgroundColor: preset?.color ?? "#EEEEEE" }}
-      >
-        {preset?.emoji ?? "🎮"}
-      </div>
-    );
-  }
+const TABS: { value: LibraryTab; label: string }[] = [
+  { value: "all", label: "Todos" },
+  { value: "public", label: "Públicos" },
+  { value: "private", label: "Privados" },
+  { value: "favorites", label: "Favoritos" },
+];
 
-  // eslint-disable-next-line @next/next/no-img-element
-  return <img src={spriteImageUrl} alt="" className="aspect-video w-full rounded-xl object-cover" />;
-}
-
-export default async function HomePage() {
-  const games = await listGames();
+export default async function HomePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ tab?: string }>;
+}) {
+  const { tab: rawTab } = await searchParams;
+  const activeTab = TABS.some((t) => t.value === rawTab) ? (rawTab as LibraryTab) : "all";
+  const games = await listGames(activeTab);
 
   return (
     <AppShell>
@@ -47,6 +45,32 @@ export default async function HomePage() {
           </span>
         </Link>
 
+        <Link
+          href="/comunidade"
+          className="flex items-center gap-3 rounded-2xl border border-border bg-card px-4 py-3 transition-colors hover:bg-muted"
+        >
+          <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-secondary">
+            <Globe className="size-4" />
+          </span>
+          <span className="flex flex-col text-left">
+            <span className="font-heading text-sm font-bold text-foreground">Comunidade</span>
+            <span className="text-xs text-muted-foreground">Ver jogos públicos de outros jogadores</span>
+          </span>
+        </Link>
+
+        <Link
+          href="/configuracoes/cores"
+          className="flex items-center gap-3 rounded-2xl border border-border bg-card px-4 py-3 transition-colors hover:bg-muted"
+        >
+          <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-secondary">
+            <Palette className="size-4" />
+          </span>
+          <span className="flex flex-col text-left">
+            <span className="font-heading text-sm font-bold text-foreground">Cores e Categorias</span>
+            <span className="text-xs text-muted-foreground">Configure o que cada cor do desenho significa</span>
+          </span>
+        </Link>
+
         <section className="flex flex-col gap-4">
           <div className="flex items-center justify-between">
             <h2 className="font-heading text-sm font-bold tracking-wide text-muted-foreground">
@@ -58,14 +82,33 @@ export default async function HomePage() {
             </span>
           </div>
 
+          <div className="flex gap-2 overflow-x-auto">
+            {TABS.map((t) => (
+              <Link
+                key={t.value}
+                href={t.value === "all" ? "/home" : `/home?tab=${t.value}`}
+                className={cn(
+                  "shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors",
+                  activeTab === t.value
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted text-muted-foreground hover:bg-muted/70",
+                )}
+              >
+                {t.label}
+              </Link>
+            ))}
+          </div>
+
           {games.length === 0 ? (
             <div className="flex flex-col items-center gap-3 rounded-2xl border-2 border-dashed border-border py-14 text-center">
               <Gamepad2 className="size-10 text-muted-foreground/50" />
               <p className="font-heading text-base font-bold text-foreground">
-                Nenhum jogo ainda
+                {activeTab === "all" ? "Nenhum jogo ainda" : "Nada por aqui ainda"}
               </p>
               <p className="max-w-xs text-sm text-muted-foreground">
-                Crie seu primeiro jogo a partir de um desenho!
+                {activeTab === "all"
+                  ? "Crie seu primeiro jogo a partir de um desenho!"
+                  : "Os jogos que combinarem com esse filtro aparecem aqui."}
               </p>
             </div>
           ) : (
@@ -74,13 +117,15 @@ export default async function HomePage() {
                 <div key={game.id} className="flex flex-col gap-2 rounded-2xl border border-border bg-card p-3">
                   <div className="relative">
                     <GameThumbnail spriteImageUrl={game.spriteImageUrl} />
-                    <div className="absolute right-1 top-1">
+                    <div className="absolute right-1 top-1 flex gap-1">
+                      <FavoriteButton gameId={game.id} isFavorite={game.isFavorite} />
                       <DeleteGameButton gameId={game.id} gameName={game.name} />
                     </div>
                   </div>
                   <p className="truncate font-heading text-sm font-bold text-foreground">
                     {game.name}
                   </p>
+                  <VisibilityToggle gameId={game.id} visibility={game.visibility} />
                   <Link
                     href={`/play/${game.id}`}
                     className="flex items-center justify-center gap-1.5 rounded-full bg-primary py-1.5 text-xs font-bold text-primary-foreground"

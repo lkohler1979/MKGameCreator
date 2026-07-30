@@ -99,6 +99,7 @@ export class MazeGame implements GameEngine {
   private shieldGraphic!: PIXI.Graphics;
   private coinEntities: { body: Matter.Body; graphic: PIXI.Container }[] = [];
   private powerupEntities: { body: Matter.Body; graphic: PIXI.Container; type: PowerupType }[] = [];
+  private destructibleEntities: { body: Matter.Body; graphic: PIXI.Container }[] = [];
 
   private direction: Direction = null;
   private invulnerableUntil = 0;
@@ -240,15 +241,28 @@ export class MazeGame implements GameEngine {
       const cell = takeCell();
       if (!cell) break;
       const { x, y } = cellCenter(cell.c, cell.r);
-      // "hazard" tira vida (sensor); "hop" não tem pulo no labirinto, então vira
-      // um bloco sólido — precisa desviar, igual a uma parede extra.
-      const isHazard = obstacle.type === "hazard";
+      // "enemy" e "dynamic" degradam pra hazard/hop no labirinto: perseguir
+      // pelas paredes exigiria pathfinding (fora de escopo) e não existe
+      // conceito de "andar sobre" pra objeto móvel aqui. "destructible" já
+      // funciona igual à Plataforma (some ao tocar, libera atalho).
+      const isLethal = obstacle.type === "hazard" || obstacle.type === "enemy";
+      const isDestructible = obstacle.type === "destructible";
+      const label = isLethal ? "hazard" : isDestructible ? "destructible" : "hop";
+
       const body = Matter.Bodies.rectangle(x, y, HAZARD_SIZE, HAZARD_SIZE, {
         isStatic: true,
-        isSensor: isHazard,
-        label: isHazard ? "hazard" : "hop",
+        isSensor: isLethal,
+        label,
       });
       this.addBody(body);
+
+      const fillColor = isLethal
+        ? 0xef4444
+        : isDestructible
+          ? 0x9a7b4f
+          : obstacle.type === "dynamic"
+            ? 0x8b5cf6
+            : 0x9ca3af;
 
       let graphic: PIXI.Container;
       if (obstacle.imageUrl) {
@@ -263,12 +277,17 @@ export class MazeGame implements GameEngine {
       } else {
         graphic = new PIXI.Graphics()
           .poly([-HAZARD_SIZE / 2, HAZARD_SIZE / 2, HAZARD_SIZE / 2, HAZARD_SIZE / 2, 0, -HAZARD_SIZE / 2])
-          .fill(isHazard ? 0xef4444 : 0x9ca3af);
+          .fill(fillColor);
         graphic.x = x;
         graphic.y = y;
       }
       this.app.stage.addChild(graphic);
-      this.worldGraphics.push(graphic);
+
+      if (isDestructible) {
+        this.destructibleEntities.push({ body, graphic });
+      } else {
+        this.worldGraphics.push(graphic);
+      }
     }
 
     for (const powerup of this.sceneConfig.powerups ?? []) {
@@ -361,6 +380,15 @@ export class MazeGame implements GameEngine {
       this.powerupEntities = this.powerupEntities.filter((powerup) => powerup !== entity);
       this.applyPowerup(entity.type);
       this.audio.playPowerup();
+    }
+
+    if (other.label === "destructible") {
+      const entity = this.destructibleEntities.find((item) => item.body === other);
+      if (!entity) return;
+      Matter.World.remove(this.engine.world, other);
+      entity.graphic.destroy();
+      this.destructibleEntities = this.destructibleEntities.filter((item) => item !== entity);
+      this.audio.playCoin();
     }
 
     if (other.label === "hazard" && Date.now() > this.invulnerableUntil) {
@@ -477,6 +505,10 @@ export class MazeGame implements GameEngine {
       Matter.World.remove(this.engine.world, powerup.body);
       powerup.graphic.destroy();
     }
+    for (const destructible of this.destructibleEntities) {
+      Matter.World.remove(this.engine.world, destructible.body);
+      destructible.graphic.destroy();
+    }
     this.playerSprite.destroy();
     this.shieldGraphic.destroy();
 
@@ -484,6 +516,7 @@ export class MazeGame implements GameEngine {
     this.worldGraphics = [];
     this.coinEntities = [];
     this.powerupEntities = [];
+    this.destructibleEntities = [];
     this.direction = null;
     this.invulnerableUntil = 0;
     this.doubleCoinsUntil = 0;

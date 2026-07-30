@@ -14,8 +14,9 @@ import {
 
 import { Button, buttonVariants } from "@/components/ui/button";
 import { WizardHeader } from "@/components/wizard-header";
+import { getColorConfig, uploadImage } from "@/lib/api";
+import { DEFAULT_COLOR_ROLE_MAP, matchColorToRole } from "@/lib/color-roles";
 import { ROLE_OPTIONS, type ElementRole } from "@/lib/element-roles";
-import { uploadImage } from "@/lib/api";
 import { loadImageToCanvas, rotateImageFile, type RotationDegrees } from "@/lib/image-utils";
 import {
   buildSceneConfigFromShapes,
@@ -27,6 +28,7 @@ import {
   buildForegroundMask,
   detectShapes,
   sampleBackgroundColor,
+  sampleShapeColor,
 } from "@/lib/shape-detection";
 import { cn } from "@/lib/utils";
 
@@ -126,8 +128,21 @@ export default function UploadPage() {
       const backgroundRgb = sampleBackgroundColor(originalCanvas);
       setSkyColor(isUsableSkyColor(backgroundRgb) ? backgroundColorToHex(backgroundRgb) : undefined);
 
+      // A maior forma continua sempre "personagem" (heurística de tamanho,
+      // não de cor) — as demais ganham uma sugestão inicial de categoria
+      // baseada na cor média da própria forma + configuração de cores do
+      // usuário (apps/web/src/app/configuracoes/cores), caindo em "moeda"
+      // quando a cor não bate com nada configurado. A criança ainda pode
+      // trocar qualquer marcação normalmente.
+      const colorConfig = (await getColorConfig().catch(() => null)) ?? DEFAULT_COLOR_ROLE_MAP;
       setShapes(
-        detected.map((shape, index) => ({ ...shape, role: index === 0 ? "personagem" : "moeda" })),
+        detected.map((shape, index) => ({
+          ...shape,
+          role:
+            index === 0
+              ? "personagem"
+              : (matchColorToRole(sampleShapeColor(shape), colorConfig) ?? "moeda"),
+        })),
       );
 
       setProcessingLabel("Enviando imagens...");
@@ -203,7 +218,10 @@ export default function UploadPage() {
           shape.role === "moeda" ||
           shape.role === "pular" ||
           shape.role === "machuca" ||
-          shape.role === "powerup",
+          shape.role === "powerup" ||
+          shape.role === "inimigo" ||
+          shape.role === "destrutivel" ||
+          shape.role === "dinamico",
       );
 
       const [characterUrl, elementUrls] = await Promise.all([

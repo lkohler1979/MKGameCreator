@@ -4,6 +4,8 @@ import path from "node:path";
 
 import type { FastifyInstance } from "fastify";
 
+import { requireAuth } from "../lib/auth.js";
+
 export const UPLOADS_DIR = path.join(process.cwd(), "uploads");
 
 // TODO(sprint-0): trocar por validação real (analise de desenho + moderação de
@@ -18,7 +20,7 @@ const ALLOWED_MIME_EXTENSIONS: Record<string, string> = {
 export async function registerUploadRoutes(app: FastifyInstance) {
   await mkdir(UPLOADS_DIR, { recursive: true });
 
-  app.post("/uploads", async (request, reply) => {
+  app.post("/uploads", { preHandler: requireAuth }, async (request, reply) => {
     const file = await request.file();
 
     if (!file) {

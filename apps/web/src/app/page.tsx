@@ -1,9 +1,12 @@
+import { cookies } from "next/headers";
 import Link from "next/link";
 import { ArrowRight, Crown, Gamepad2, Pencil, Sparkles } from "lucide-react";
 
-import { Button, buttonVariants } from "@/components/ui/button";
-import { GoogleIcon, MicrosoftIcon } from "@/components/brand-icons";
+import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+
+// Precisa bater com SESSION_COOKIE_NAME em backend/src/lib/auth.ts
+const SESSION_COOKIE_NAME = "mkgc_session";
 
 const DECORATIVE_STARS = [
   { top: "8%", left: "12%", size: 18, delay: "0s" },
@@ -14,7 +17,10 @@ const DECORATIVE_STARS = [
   { top: "12%", left: "48%", size: 10, delay: "1s" },
 ];
 
-export default function SplashPage() {
+export default async function SplashPage() {
+  const cookieStore = await cookies();
+  const isLoggedIn = cookieStore.has(SESSION_COOKIE_NAME);
+
   return (
     <div className="relative flex min-h-screen flex-1 flex-col items-center justify-center overflow-hidden bg-gradient-to-b from-splash-from to-splash-to px-6 py-12 text-center">
       {DECORATIVE_STARS.map((star, index) => (
@@ -59,41 +65,45 @@ export default function SplashPage() {
         </p>
 
         <Link
-          href="/home"
+          href={isLoggedIn ? "/home" : "/login"}
           className={cn(buttonVariants({ variant: "cta", size: "xl" }), "w-full")}
         >
           Começar
           <ArrowRight className="size-5" />
         </Link>
 
-        <div className="flex w-full flex-col items-center gap-4">
-          <div className="flex w-full items-center gap-3">
-            <span className="h-px flex-1 bg-white/20" />
-            <span className="font-sans text-sm font-semibold text-white/70">
-              Entrar com
-            </span>
-            <span className="h-px flex-1 bg-white/20" />
-          </div>
+        {!isLoggedIn && (
+          <div className="flex w-full flex-col items-center gap-4">
+            <div className="flex w-full items-center gap-3">
+              <span className="h-px flex-1 bg-white/20" />
+              <span className="font-sans text-sm font-semibold text-white/70">
+                ou
+              </span>
+              <span className="h-px flex-1 bg-white/20" />
+            </div>
 
-          <div className="flex w-full gap-3">
-            <Button
-              variant="outline"
-              size="lg"
-              className="h-12 flex-1 rounded-full border-transparent bg-white text-foreground hover:bg-white/90"
-            >
-              <GoogleIcon className="size-5" />
-              Google
-            </Button>
-            <Button
-              variant="outline"
-              size="lg"
-              className="h-12 flex-1 rounded-full border-transparent bg-white text-foreground hover:bg-white/90"
-            >
-              <MicrosoftIcon className="size-5" />
-              Microsoft
-            </Button>
+            <div className="flex w-full gap-3">
+              <Link
+                href="/login"
+                className={cn(
+                  buttonVariants({ variant: "outline", size: "lg" }),
+                  "h-12 flex-1 rounded-full border-transparent bg-white text-foreground hover:bg-white/90",
+                )}
+              >
+                Entrar
+              </Link>
+              <Link
+                href="/signup"
+                className={cn(
+                  buttonVariants({ variant: "outline", size: "lg" }),
+                  "h-12 flex-1 rounded-full border-transparent bg-white text-foreground hover:bg-white/90",
+                )}
+              >
+                Criar Conta
+              </Link>
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );

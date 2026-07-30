@@ -1,11 +1,14 @@
 import type { Prisma } from "@prisma/client";
 import type { FastifyInstance } from "fastify";
 
-import { getOrCreateDevUser } from "../lib/dev-user.js";
+import { optionalAuth, requireAuth } from "../lib/auth.js";
+import { containsBannedWords } from "../lib/content-filter.js";
 import { prisma } from "../lib/prisma.js";
 
 const SPRITE_SOURCES = new Set(["DRAWING", "PRESET"]);
-const GAME_TEMPLATES = new Set(["PLATFORM", "MAZE"]);
+const GAME_TEMPLATES = new Set(["PLATFORM", "MAZE", "COLLECT"]);
+const GAME_VISIBILITIES = new Set(["PRIVATE", "PUBLIC"]);
+const LIBRARY_TABS = new Set(["all", "public", "private", "favorites"]);
 
 // TODO(sprint-4): motor de jogo vai consumir/renderizar esse layout. Por ora é
 // um cenário fixo do template "Plataforma" (sem geração procedural real).
@@ -35,7 +38,7 @@ function isValidSceneConfig(value: unknown): value is Record<string, unknown> {
 }
 
 export async function registerGameRoutes(app: FastifyInstance) {
-  app.post("/sprites", async (request, reply) => {
+  app.post("/sprites", { preHandler: requireAuth }, async (request, reply) => {
     const body = request.body as {
       source?: string;
       originalImageUrl?: string;
@@ -46,11 +49,9 @@ export async function registerGameRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: "spriteImageUrl e source (DRAWING|PRESET) são obrigatórios" });
     }
 
-    const devUser = await getOrCreateDevUser();
-
     const sprite = await prisma.sprite.create({
       data: {
-        userId: devUser.id,
+        userId: request.user!.id,
         source: body.source as "DRAWING" | "PRESET",
         originalImageUrl: body.originalImageUrl ?? null,
         spriteImageUrl: body.spriteImageUrl,
@@ -60,7 +61,17 @@ export async function registerGameRoutes(app: FastifyInstance) {
     return sprite;
   });
 
-  app.post("/games", async (request, reply) => {
+  app.get("/sprites", { preHandler: requireAuth }, async (request) => {
+    const sprites = await prisma.sprite.findMany({
+      where: { userId: request.user!.id, source: "DRAWING" },
+      orderBy: { createdAt: "desc" },
+      select: { id: true, source: true, spriteImageUrl: true, originalImageUrl: true, createdAt: true },
+    });
+
+    return sprites;
+  });
+
+  app.post("/games", { preHandler: requireAuth }, async (request, reply) => {
     const body = request.body as {
       spriteId?: string;
       name?: string;
@@ -72,17 +83,21 @@ export async function registerGameRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: "spriteId é obrigatório" });
     }
 
-    const devUser = await getOrCreateDevUser();
+    const name = body.name?.trim() || "Meu Jogo";
+    if (containsBannedWords(name)) {
+      return reply.code(400).send({ error: "Esse nome não é permitido, tente outro" });
+    }
+
     const sceneConfig = isValidSceneConfig(body.sceneConfig) ? body.sceneConfig : DEFAULT_SCENE_CONFIG;
     const templateType = GAME_TEMPLATES.has(body.templateType ?? "") ? body.templateType : "PLATFORM";
 
     try {
       const game = await prisma.game.create({
         data: {
-          userId: devUser.id,
+          userId: request.user!.id,
           spriteId: body.spriteId,
-          name: body.name?.trim() || "Meu Jogo",
-          templateType: templateType as "PLATFORM" | "MAZE",
+          name,
+          templateType: templateType as "PLATFORM" | "MAZE" | "COLLECT",
           sceneConfig: sceneConfig as Prisma.InputJsonValue,
         },
       });
@@ -93,12 +108,13 @@ export async function registerGameRoutes(app: FastifyInstance) {
     }
   });
 
+  // Pública de propósito: sustenta o link de "Compartilhar" da tela Jogar -
+  // qualquer pessoa com o id (não enumerável) pode abrir e jogar, sem conta.
   app.get("/games/:id", async (request, reply) => {
     const { id } = request.params as { id: string };
-    const devUser = await getOrCreateDevUser();
 
-    const game = await prisma.game.findFirst({
-      where: { id, userId: devUser.id },
+    const game = await prisma.game.findUnique({
+      where: { id },
       include: { sprite: true },
     });
 
@@ -119,7 +135,37 @@ export async function registerGameRoutes(app: FastifyInstance) {
     };
   });
 
-  app.post("/games/:id/sessions", async (request, reply) => {
+  // Pública pelo mesmo motivo do GET /games/:id - o ranking de um jogo
+  // compartilhado precisa ser visível pra quem recebeu o link, sem conta.
+  app.get("/games/:id/ranking", async (request, reply) => {
+    const { id } = request.params as { id: string };
+
+    const game = await prisma.game.findUnique({ where: { id } });
+    if (!game) {
+      return reply.code(404).send({ error: "Jogo não encontrado" });
+    }
+
+    const sessions = await prisma.gameSession.findMany({
+      where: { gameId: id, completed: true },
+      orderBy: [{ coinsCollected: "desc" }, { timeSeconds: "asc" }],
+      take: 10,
+      include: { user: true },
+    });
+
+    return sessions.map((session) => ({
+      id: session.id,
+      playerName: session.user?.name ?? session.user?.email ?? "Anônimo",
+      coinsCollected: session.coinsCollected,
+      timeSeconds: session.timeSeconds,
+      finishedAt: session.finishedAt,
+    }));
+  });
+
+  // Pública (optionalAuth) pelo mesmo motivo do GET acima - um amigo sem
+  // conta pode jogar um jogo compartilhado e registrar o resultado. Se
+  // estiver logado, a sessão fica associada a ele; senão, fica anônima
+  // (userId nulo) - nunca é carimbada com o dono do jogo, que não é quem jogou.
+  app.post("/games/:id/sessions", { preHandler: optionalAuth }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const body = request.body as {
       completed?: boolean;
@@ -128,9 +174,7 @@ export async function registerGameRoutes(app: FastifyInstance) {
       livesRemaining?: number;
     };
 
-    const devUser = await getOrCreateDevUser();
-
-    const game = await prisma.game.findFirst({ where: { id, userId: devUser.id } });
+    const game = await prisma.game.findUnique({ where: { id } });
     if (!game) {
       return reply.code(404).send({ error: "Jogo não encontrado" });
     }
@@ -138,7 +182,7 @@ export async function registerGameRoutes(app: FastifyInstance) {
     const session = await prisma.gameSession.create({
       data: {
         gameId: id,
-        userId: devUser.id,
+        userId: request.user?.id ?? null,
         completed: body.completed ?? false,
         timeSeconds: body.timeSeconds,
         coinsCollected: body.coinsCollected ?? 0,
@@ -150,11 +194,29 @@ export async function registerGameRoutes(app: FastifyInstance) {
     return { id: session.id };
   });
 
-  app.delete("/games/:id", async (request, reply) => {
+  // Sem checar dono do jogo - qualquer usuário pode denunciar. Sem fila de
+  // aprovação/admin UI nesta rodada (Fase 4.7 mínima); fica persistido pra
+  // revisão manual futura.
+  app.post("/games/:id/report", { preHandler: requireAuth }, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const devUser = await getOrCreateDevUser();
+    const body = request.body as { reason?: string };
 
-    const game = await prisma.game.findFirst({ where: { id, userId: devUser.id } });
+    const game = await prisma.game.findUnique({ where: { id } });
+    if (!game) {
+      return reply.code(404).send({ error: "Jogo não encontrado" });
+    }
+
+    await prisma.gameReport.create({
+      data: { gameId: id, reporterId: request.user!.id, reason: body?.reason?.trim() || null },
+    });
+
+    return reply.code(204).send();
+  });
+
+  app.delete("/games/:id", { preHandler: requireAuth }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+
+    const game = await prisma.game.findFirst({ where: { id, userId: request.user!.id } });
     if (!game) {
       return reply.code(404).send({ error: "Jogo não encontrado" });
     }
@@ -163,13 +225,102 @@ export async function registerGameRoutes(app: FastifyInstance) {
     return reply.code(204).send();
   });
 
-  app.get("/games", async () => {
-    const devUser = await getOrCreateDevUser();
+  app.patch("/games/:id", { preHandler: requireAuth }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const body = request.body as { visibility?: string; sceneConfig?: unknown };
+
+    if (body?.visibility !== undefined && !GAME_VISIBILITIES.has(body.visibility)) {
+      return reply.code(400).send({ error: "visibility (PRIVATE|PUBLIC) é obrigatório" });
+    }
+    if (body?.sceneConfig !== undefined && !isValidSceneConfig(body.sceneConfig)) {
+      return reply.code(400).send({ error: "sceneConfig inválido" });
+    }
+    if (body?.visibility === undefined && body?.sceneConfig === undefined) {
+      return reply.code(400).send({ error: "visibility ou sceneConfig é obrigatório" });
+    }
+
+    const game = await prisma.game.findFirst({ where: { id, userId: request.user!.id } });
+    if (!game) {
+      return reply.code(404).send({ error: "Jogo não encontrado" });
+    }
+
+    const updated = await prisma.game.update({
+      where: { id },
+      data: {
+        ...(body.visibility !== undefined ? { visibility: body.visibility as "PRIVATE" | "PUBLIC" } : {}),
+        ...(body.sceneConfig !== undefined ? { sceneConfig: body.sceneConfig as Prisma.InputJsonValue } : {}),
+      },
+    });
+
+    return { id: updated.id, visibility: updated.visibility };
+  });
+
+  app.post("/games/:id/favorite", { preHandler: requireAuth }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+
+    const game = await prisma.game.findUnique({ where: { id } });
+    if (!game) {
+      return reply.code(404).send({ error: "Jogo não encontrado" });
+    }
+
+    await prisma.favorite.upsert({
+      where: { userId_gameId: { userId: request.user!.id, gameId: id } },
+      update: {},
+      create: { userId: request.user!.id, gameId: id },
+    });
+
+    return reply.code(204).send();
+  });
+
+  app.delete("/games/:id/favorite", { preHandler: requireAuth }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+
+    await prisma.favorite.deleteMany({ where: { userId: request.user!.id, gameId: id } });
+    return reply.code(204).send();
+  });
+
+  app.get("/games", { preHandler: requireAuth }, async (request) => {
+    const query = request.query as { tab?: string };
+    const tab = LIBRARY_TABS.has(query.tab ?? "") ? query.tab! : "all";
+    const userId = request.user!.id;
+
+    const games =
+      tab === "favorites"
+        ? await prisma.game.findMany({
+            where: { favorites: { some: { userId } } },
+            orderBy: { createdAt: "desc" },
+            include: { sprite: true, favorites: { where: { userId } } },
+          })
+        : await prisma.game.findMany({
+            where: {
+              userId,
+              ...(tab === "public" ? { visibility: "PUBLIC" as const } : {}),
+              ...(tab === "private" ? { visibility: "PRIVATE" as const } : {}),
+            },
+            orderBy: { createdAt: "desc" },
+            include: { sprite: true, favorites: { where: { userId } } },
+          });
+
+    return games.map((game) => ({
+      id: game.id,
+      name: game.name,
+      createdAt: game.createdAt,
+      spriteImageUrl: game.sprite.spriteImageUrl,
+      visibility: game.visibility,
+      isFavorite: game.favorites.length > 0,
+    }));
+  });
+
+  // Diferente de GET /games (sempre filtrado pelo dono) - lista jogos
+  // públicos de QUALQUER usuário, pra tela de descoberta da Comunidade.
+  app.get("/games/community", { preHandler: requireAuth }, async (request) => {
+    const userId = request.user!.id;
 
     const games = await prisma.game.findMany({
-      where: { userId: devUser.id },
+      where: { visibility: "PUBLIC" },
       orderBy: { createdAt: "desc" },
-      include: { sprite: true },
+      take: 60,
+      include: { sprite: true, favorites: true, user: true },
     });
 
     return games.map((game) => ({
@@ -177,6 +328,9 @@ export async function registerGameRoutes(app: FastifyInstance) {
       name: game.name,
       createdAt: game.createdAt,
       spriteImageUrl: game.sprite.spriteImageUrl,
+      authorName: game.user.name ?? game.user.email,
+      likesCount: game.favorites.length,
+      isLiked: game.favorites.some((favorite) => favorite.userId === userId),
     }));
   });
 }

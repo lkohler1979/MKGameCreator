@@ -1,12 +1,13 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Check } from "lucide-react";
 
 import { buttonVariants } from "@/components/ui/button";
 import { WizardHeader } from "@/components/wizard-header";
+import { listSprites, type SpriteSummary } from "@/lib/api";
 import { PRESET_CHARACTERS } from "@/lib/preset-characters";
 import { cn } from "@/lib/utils";
 
@@ -15,6 +16,7 @@ type Selection = {
   spriteUrl: string;
   originalUrl?: string;
   name: string;
+  existingSpriteId?: string;
 };
 
 function CharacterScreenContent() {
@@ -23,6 +25,11 @@ function CharacterScreenContent() {
   const sprite = searchParams.get("sprite");
 
   const [selected, setSelected] = useState<Selection | null>(null);
+  const [savedSprites, setSavedSprites] = useState<SpriteSummary[]>([]);
+
+  useEffect(() => {
+    listSprites().then(setSavedSprites);
+  }, []);
 
   const myDrawingSelection: Selection | null = sprite
     ? { source: "DRAWING", spriteUrl: sprite, originalUrl: original ?? undefined, name: "Meu Desenho" }
@@ -32,12 +39,23 @@ function CharacterScreenContent() {
     setSelected({ source: "PRESET", spriteUrl: `preset:${preset.id}`, name: preset.label });
   }
 
+  function selectSaved(savedSprite: SpriteSummary) {
+    setSelected({
+      source: "DRAWING",
+      spriteUrl: savedSprite.spriteImageUrl,
+      originalUrl: savedSprite.originalImageUrl ?? undefined,
+      name: "Meu Personagem",
+      existingSpriteId: savedSprite.id,
+    });
+  }
+
   const nextParams = selected
     ? new URLSearchParams({
         source: selected.source,
         spriteUrl: selected.spriteUrl,
         name: selected.name,
         ...(selected.originalUrl ? { originalUrl: selected.originalUrl } : {}),
+        ...(selected.existingSpriteId ? { spriteId: selected.existingSpriteId } : {}),
       })
     : null;
 
@@ -74,6 +92,42 @@ function CharacterScreenContent() {
                 </span>
               )}
             </button>
+          </section>
+        )}
+
+        {savedSprites.length > 0 && (
+          <section className="flex flex-col gap-2">
+            <h3 className="text-xs font-bold uppercase tracking-wide text-muted-foreground">
+              Meus Personagens
+            </h3>
+            <div className="grid grid-cols-4 gap-3">
+              {savedSprites.map((savedSprite) => {
+                const isSelected = selected?.existingSpriteId === savedSprite.id;
+                return (
+                  <button
+                    key={savedSprite.id}
+                    type="button"
+                    onClick={() => selectSaved(savedSprite)}
+                    className={cn(
+                      "relative flex aspect-square items-center justify-center overflow-hidden rounded-2xl border-2 bg-muted",
+                      isSelected ? "border-primary" : "border-border",
+                    )}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={savedSprite.spriteImageUrl}
+                      alt="Personagem salvo"
+                      className="size-full object-contain"
+                    />
+                    {isSelected && (
+                      <span className="absolute right-1 top-1 flex size-5 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                        <Check className="size-3" />
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
           </section>
         )}
 

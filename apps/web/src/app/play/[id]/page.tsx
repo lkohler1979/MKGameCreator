@@ -7,6 +7,7 @@ import {
   ArrowDown,
   ArrowLeft,
   ArrowUp,
+  Clock,
   Coins,
   Expand,
   Heart,
@@ -16,13 +17,14 @@ import {
   RotateCcw,
   Share2,
   Star,
+  Trophy,
   Volume2,
   VolumeX,
   X,
 } from "lucide-react";
 
 import type { GameEngine, GameEngineOptions } from "@/game/game-engine";
-import { createGameSession, getGame, type GameDetail } from "@/lib/api";
+import { createGameSession, getGame, getGameRanking, type GameDetail, type RankingEntry } from "@/lib/api";
 import { PRESET_CHARACTERS } from "@/lib/preset-characters";
 import { rasterizeEmoji } from "@/lib/rasterize-emoji";
 
@@ -40,8 +42,43 @@ export default function PlayPage({ params }: { params: Promise<{ id: string }> }
   const { id } = use(params);
 
   const containerRef = useRef<HTMLDivElement>(null);
+  const canvasWrapperRef = useRef<HTMLDivElement>(null);
   const gameRef = useRef<GameEngine | null>(null);
   const resultSavedRef = useRef(false);
+
+  // Ajusta o tamanho real do canvas ao espaço disponível (não só à largura) -
+  // sem isso, uma tela alta e estreita (celular) deixa a área de jogo minúscula
+  // porque aspect-ratio + w-full sempre resolve pela largura, mesmo quando a
+  // altura disponível é bem menor que a largura x (14/25).
+  const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
+
+  useEffect(() => {
+    const wrapper = canvasWrapperRef.current;
+    if (!wrapper) return;
+
+    const RATIO = 25 / 14;
+
+    function updateSize() {
+      const style = getComputedStyle(wrapper!);
+      const paddingX = Number.parseFloat(style.paddingLeft) + Number.parseFloat(style.paddingRight);
+      const paddingY = Number.parseFloat(style.paddingTop) + Number.parseFloat(style.paddingBottom);
+      const availableWidth = wrapper!.clientWidth - paddingX;
+      const availableHeight = wrapper!.clientHeight - paddingY;
+
+      let width = Math.min(availableWidth, 896); // equivalente ao max-w-4xl anterior
+      let height = width / RATIO;
+      if (height > availableHeight) {
+        height = availableHeight;
+        width = height * RATIO;
+      }
+      setCanvasSize({ width, height });
+    }
+
+    updateSize();
+    const observer = new ResizeObserver(updateSize);
+    observer.observe(wrapper);
+    return () => observer.disconnect();
+  }, []);
 
   const [gameData, setGameData] = useState<GameDetail | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -50,6 +87,9 @@ export default function PlayPage({ params }: { params: Promise<{ id: string }> }
   const [result, setResult] = useState<"win" | "lose" | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [muted, setMuted] = useState(false);
+  const [ranking, setRanking] = useState<RankingEntry[] | null>(null);
+  const [showRanking, setShowRanking] = useState(false);
+  const [timeRemaining, setTimeRemaining] = useState<number | null>(null);
 
   useEffect(() => {
     getGame(id)
@@ -83,7 +123,9 @@ export default function PlayPage({ params }: { params: Promise<{ id: string }> }
     const engineModule: Promise<EngineClass> =
       gameData.templateType === "MAZE"
         ? import("@/game/maze-game").then((mod) => mod.MazeGame as unknown as EngineClass)
-        : import("@/game/platform-game").then((mod) => mod.PlatformGame as unknown as EngineClass);
+        : gameData.templateType === "COLLECT"
+          ? import("@/game/collect-game").then((mod) => mod.CollectGame as unknown as EngineClass)
+          : import("@/game/platform-game").then((mod) => mod.PlatformGame as unknown as EngineClass);
 
     engineModule
       .then((Engine) =>
@@ -101,6 +143,7 @@ export default function PlayPage({ params }: { params: Promise<{ id: string }> }
             setResult("lose");
             void saveSession(false);
           },
+          onTimeChange: setTimeRemaining,
         }),
       )
       .then((game) => {
@@ -119,22 +162,24 @@ export default function PlayPage({ params }: { params: Promise<{ id: string }> }
   }, [gameData, id]);
 
   useEffect(() => {
-    const isMaze = gameData?.templateType === "MAZE";
+    // Labirinto e Coleta de Itens usam o mesmo modelo de movimento livre em 4
+    // direções (sem gravidade/pulo) — a Plataforma é a única com pulo real.
+    const isFreeMovement = gameData?.templateType === "MAZE" || gameData?.templateType === "COLLECT";
 
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "ArrowLeft") gameRef.current?.moveLeft();
       if (event.key === "ArrowRight") gameRef.current?.moveRight();
-      // ArrowUp cobre os dois motores: pula na Plataforma, anda pra cima no
-      // Labirinto — o método do motor inativo é sempre um no-op.
+      // ArrowUp cobre os três motores: pula na Plataforma, anda pra cima nos
+      // outros — o método do motor inativo é sempre um no-op.
       if (event.key === "ArrowUp") gameRef.current?.moveUp();
       if (event.key === "ArrowDown") gameRef.current?.moveDown();
       if (event.key === "ArrowUp" || event.key === " ") gameRef.current?.jump();
     }
     function handleKeyUp(event: KeyboardEvent) {
       if (event.key === "ArrowLeft" || event.key === "ArrowRight") gameRef.current?.stopMove();
-      // Só solta o movimento no keyup de cima/baixo quando é o Labirinto —
-      // na Plataforma isso zeraria o moveDirection horizontal por engano.
-      if (isMaze && (event.key === "ArrowUp" || event.key === "ArrowDown")) gameRef.current?.stopMove();
+      // Só solta o movimento no keyup de cima/baixo em movimento livre — na
+      // Plataforma isso zeraria o moveDirection horizontal por engano.
+      if (isFreeMovement && (event.key === "ArrowUp" || event.key === "ArrowDown")) gameRef.current?.stopMove();
     }
 
     window.addEventListener("keydown", handleKeyDown);
@@ -163,6 +208,12 @@ export default function PlayPage({ params }: { params: Promise<{ id: string }> }
   function handleToggleMute() {
     if (!gameRef.current) return;
     setMuted(gameRef.current.toggleMute());
+  }
+
+  async function handleShowRanking() {
+    setShowRanking(true);
+    const entries = await getGameRanking(id);
+    setRanking(entries);
   }
 
   function getShareUrl() {
@@ -200,13 +251,7 @@ export default function PlayPage({ params }: { params: Promise<{ id: string }> }
   const totalCoins = gameData?.sceneConfig.coins.length ?? 0;
   const starCount = totalCoins > 0 ? Math.max(1, Math.round((coins / totalCoins) * 5)) : 5;
 
-  const editHref =
-    gameData?.sprite.source === "DRAWING"
-      ? `/new-game/character?${new URLSearchParams({
-          sprite: gameData.sprite.spriteImageUrl,
-          ...(gameData.sprite.originalImageUrl ? { original: gameData.sprite.originalImageUrl } : {}),
-        }).toString()}`
-      : "/new-game/character";
+  const editHref = `/new-game/edit?gameId=${id}`;
 
   if (loadError) {
     return (
@@ -227,11 +272,27 @@ export default function PlayPage({ params }: { params: Promise<{ id: string }> }
             <Heart key={index} className="size-6" fill="#ef4444" stroke="#ef4444" />
           ))}
         </div>
-        <div className="flex items-center gap-1 rounded-full bg-white/80 px-3 py-1">
-          <Coins className="size-4 text-cta" />
-          <span className="font-heading text-sm font-bold">{coins}</span>
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 rounded-full bg-white/80 px-3 py-1">
+            <Coins className="size-4 text-cta" />
+            <span className="font-heading text-sm font-bold">{coins}</span>
+          </div>
+          {gameData?.templateType === "COLLECT" && timeRemaining !== null && (
+            <div className="flex items-center gap-1 rounded-full bg-white/80 px-3 py-1">
+              <Clock className="size-4 text-foreground" />
+              <span className="font-heading text-sm font-bold">{timeRemaining}s</span>
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            aria-label="Ver ranking"
+            onClick={handleShowRanking}
+            className="flex size-9 items-center justify-center rounded-full bg-white/80 text-foreground"
+          >
+            <Trophy className="size-5" />
+          </button>
           <button
             type="button"
             aria-label={muted ? "Ativar som" : "Silenciar som"}
@@ -250,15 +311,23 @@ export default function PlayPage({ params }: { params: Promise<{ id: string }> }
         </div>
       </div>
 
-      <div className="flex flex-1 items-center justify-center p-4 pt-16">
+      <div className="pointer-events-none absolute inset-x-0 top-16 z-10 hidden justify-center px-4 max-sm:portrait:flex">
+        <div className="flex items-center gap-1.5 rounded-full bg-black/70 px-3 py-1 text-xs font-semibold text-white">
+          <RotateCcw className="size-3.5" />
+          Gire o celular para uma tela maior
+        </div>
+      </div>
+
+      <div ref={canvasWrapperRef} className="flex flex-1 items-center justify-center p-4 pt-16">
         <div
-          className="aspect-[25/14] w-full max-w-4xl overflow-hidden rounded-2xl shadow-lg animate-fade-in-up"
+          className="overflow-hidden rounded-2xl shadow-lg animate-fade-in-up"
+          style={canvasSize.width ? { width: canvasSize.width, height: canvasSize.height } : undefined}
           ref={containerRef}
         />
       </div>
 
       <div className="flex items-center justify-between px-4 pb-6">
-        {gameData?.templateType === "MAZE" ? (
+        {gameData?.templateType === "MAZE" || gameData?.templateType === "COLLECT" ? (
           <div className="grid grid-cols-3 grid-rows-3 gap-1.5">
             <div />
             <button
@@ -448,6 +517,54 @@ export default function PlayPage({ params }: { params: Promise<{ id: string }> }
             <Link href="/home" className="text-sm font-semibold text-muted-foreground">
               Voltar para Home
             </Link>
+          </div>
+        </div>
+      )}
+
+      {showRanking && (
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/50 p-4">
+          <div className="flex w-full max-w-sm flex-col gap-4 rounded-2xl bg-card p-6 animate-fade-in-up">
+            <div className="flex items-center gap-2">
+              <Trophy className="size-6 text-cta" />
+              <h2 className="font-heading text-xl font-bold text-foreground">Ranking</h2>
+            </div>
+
+            {ranking === null ? (
+              <p className="text-sm text-muted-foreground">Carregando...</p>
+            ) : ranking.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                Ninguém completou esse jogo ainda. Seja o primeiro!
+              </p>
+            ) : (
+              <ol className="flex flex-col gap-2">
+                {ranking.map((entry, index) => (
+                  <li
+                    key={entry.id}
+                    className="flex items-center justify-between rounded-xl bg-muted px-3 py-2"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="font-heading text-sm font-bold text-muted-foreground">
+                        {index + 1}º
+                      </span>
+                      <span className="text-sm font-semibold text-foreground">{entry.playerName}</span>
+                    </div>
+                    <div className="flex items-center gap-1 text-xs font-semibold text-muted-foreground">
+                      <Coins className="size-3.5 text-cta" />
+                      {entry.coinsCollected}
+                      {entry.timeSeconds != null && <span>· {entry.timeSeconds}s</span>}
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            )}
+
+            <button
+              type="button"
+              onClick={() => setShowRanking(false)}
+              className="w-full rounded-full bg-primary py-3 font-bold text-primary-foreground"
+            >
+              Fechar
+            </button>
           </div>
         </div>
       )}

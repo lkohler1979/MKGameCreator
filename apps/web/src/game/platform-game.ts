@@ -25,6 +25,8 @@ const DOUBLE_COINS_DURATION_MS = 8000;
 const DEFAULT_SKY_COLOR = 0x8ecae6;
 const PATROL_AMPLITUDE = 40;
 const PATROL_ANGULAR_SPEED = (2 * Math.PI) / 3000;
+const ENEMY_CHASE_SPEED = 1.5;
+const ENEMY_LEASH_RANGE = 150;
 
 const POWERUP_COLORS: Record<PowerupType, number> = {
   extra_life: 0xef4444,
@@ -55,6 +57,8 @@ export class PlatformGame implements GameEngine {
   private coinEntities: { body: Matter.Body; graphic: PIXI.Container }[] = [];
   private powerupEntities: { body: Matter.Body; graphic: PIXI.Container; type: PowerupType }[] = [];
   private hazardEntities: { body: Matter.Body; graphic: PIXI.Container; spawnX: number; spawnY: number }[] = [];
+  private enemyEntities: { body: Matter.Body; graphic: PIXI.Container; spawnX: number; spawnY: number }[] = [];
+  private destructibleEntities: { body: Matter.Body; graphic: PIXI.Container }[] = [];
 
   private moveDirection: -1 | 0 | 1 = 0;
   private groundContacts = 0;
@@ -129,23 +133,33 @@ export class PlatformGame implements GameEngine {
     this.worldGraphics.push(groundGraphic);
 
     for (const obstacle of obstacles) {
-      // "hazard" tira vida e patrulha de um lado a outro (inimigo simples);
-      // "hop" é sólido e parado — o personagem precisa pular por cima, sem
-      // penalidade se encostar.
-      const isHazard = obstacle.type === "hazard";
+      // "hazard" tira vida e patrulha senoidalmente; "hop" é sólido e parado;
+      // "enemy" tira vida e persegue o jogador; "destructible" é sólido até
+      // ser tocado (some, sem dano/pontuação); "dynamic" é sólido e patrulha
+      // senoidalmente igual ao hazard, mas bloqueia de verdade (não é sensor).
+      const isSensor = obstacle.type === "hazard" || obstacle.type === "enemy";
       const width = obstacle.width ?? OBSTACLE_SIZE;
       const height = obstacle.height ?? OBSTACLE_SIZE;
 
       const body = Matter.Bodies.rectangle(obstacle.x, obstacle.y, width, height, {
         isStatic: true,
-        isSensor: isHazard,
-        label: isHazard ? "hazard" : "hop",
+        isSensor,
+        label: obstacle.type,
       });
       this.addBody(body);
 
+      const fillColor =
+        obstacle.type === "hazard" || obstacle.type === "enemy"
+          ? 0xef4444
+          : obstacle.type === "destructible"
+            ? 0x9a7b4f
+            : obstacle.type === "dynamic"
+              ? 0x8b5cf6
+              : 0x9ca3af;
+
       // Geometria desenhada relativa à origem (0,0) e posicionada via
       // .x/.y do container — assim sprite e gráfico genérico se movem da
-      // mesma forma (necessário pra patrulha dos "hazard" abaixo).
+      // mesma forma (necessário pra patrulha do hazard/dynamic/enemy abaixo).
       let obstacleGraphic: PIXI.Container;
       if (obstacle.imageUrl) {
         const texture = await PlatformGame.loadTexture(obstacle.imageUrl);
@@ -157,14 +171,18 @@ export class PlatformGame implements GameEngine {
       } else {
         obstacleGraphic = new PIXI.Graphics()
           .poly([-width / 2, height / 2, width / 2, height / 2, 0, -height / 2])
-          .fill(isHazard ? 0xef4444 : 0x9ca3af);
+          .fill(fillColor);
       }
       obstacleGraphic.x = obstacle.x;
       obstacleGraphic.y = obstacle.y;
       this.app.stage.addChild(obstacleGraphic);
 
-      if (isHazard) {
+      if (obstacle.type === "hazard" || obstacle.type === "dynamic") {
         this.hazardEntities.push({ body, graphic: obstacleGraphic, spawnX: obstacle.x, spawnY: obstacle.y });
+      } else if (obstacle.type === "enemy") {
+        this.enemyEntities.push({ body, graphic: obstacleGraphic, spawnX: obstacle.x, spawnY: obstacle.y });
+      } else if (obstacle.type === "destructible") {
+        this.destructibleEntities.push({ body, graphic: obstacleGraphic });
       } else {
         this.worldGraphics.push(obstacleGraphic);
       }
@@ -319,7 +337,7 @@ export class PlatformGame implements GameEngine {
       this.audio.playPowerup();
     }
 
-    if (other.label === "hazard" && Date.now() > this.invulnerableUntil) {
+    if ((other.label === "hazard" || other.label === "enemy") && Date.now() > this.invulnerableUntil) {
       this.invulnerableUntil = Date.now() + INVULNERABILITY_MS;
       Matter.Body.setVelocity(this.playerBody, { x: -3, y: -8 });
       this.lives -= 1;
@@ -330,6 +348,15 @@ export class PlatformGame implements GameEngine {
         this.callbacks.onLose?.();
         this.audio.playLose();
       }
+    }
+
+    if (other.label === "destructible") {
+      const entity = this.destructibleEntities.find((item) => item.body === other);
+      if (!entity) return;
+      Matter.World.remove(this.engine.world, other);
+      entity.graphic.destroy();
+      this.destructibleEntities = this.destructibleEntities.filter((item) => item !== entity);
+      this.audio.playCoin();
     }
 
     if (other.label === "flag") {
@@ -366,6 +393,21 @@ export class PlatformGame implements GameEngine {
         Matter.Body.setPosition(hazard.body, { x, y: hazard.spawnY });
         hazard.graphic.x = x;
         hazard.graphic.y = hazard.spawnY;
+      }
+
+      // Persegue o jogador no eixo X, sem passar do raio de perseguição a
+      // partir do spawn - mais lento que o jogador (MOVE_SPEED) pra dar pra fugir.
+      const enemyStep = ENEMY_CHASE_SPEED * (ticker.deltaMS / 16.67);
+      for (const enemy of this.enemyEntities) {
+        const minX = enemy.spawnX - ENEMY_LEASH_RANGE;
+        const maxX = enemy.spawnX + ENEMY_LEASH_RANGE;
+        const targetX = Math.max(minX, Math.min(maxX, this.playerBody.position.x));
+        const currentX = enemy.body.position.x;
+        const direction = targetX > currentX ? 1 : targetX < currentX ? -1 : 0;
+        const x = Math.max(minX, Math.min(maxX, currentX + direction * enemyStep));
+        Matter.Body.setPosition(enemy.body, { x, y: enemy.spawnY });
+        enemy.graphic.x = x;
+        enemy.graphic.y = enemy.spawnY;
       }
 
       Matter.Engine.update(this.engine, ticker.deltaMS);
@@ -447,6 +489,14 @@ export class PlatformGame implements GameEngine {
       Matter.World.remove(this.engine.world, hazard.body);
       hazard.graphic.destroy();
     }
+    for (const enemy of this.enemyEntities) {
+      Matter.World.remove(this.engine.world, enemy.body);
+      enemy.graphic.destroy();
+    }
+    for (const destructible of this.destructibleEntities) {
+      Matter.World.remove(this.engine.world, destructible.body);
+      destructible.graphic.destroy();
+    }
     this.playerSprite.destroy();
     this.shieldGraphic.destroy();
 
@@ -455,6 +505,8 @@ export class PlatformGame implements GameEngine {
     this.coinEntities = [];
     this.powerupEntities = [];
     this.hazardEntities = [];
+    this.enemyEntities = [];
+    this.destructibleEntities = [];
     this.moveDirection = 0;
     this.groundContacts = 0;
     this.invulnerableUntil = 0;
