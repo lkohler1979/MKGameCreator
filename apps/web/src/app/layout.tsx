@@ -1,6 +1,8 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Baloo_2, Nunito } from "next/font/google";
 import "./globals.css";
+
+import { ChunkReloadGuard } from "@/components/chunk-reload-guard";
 
 const baloo = Baloo_2({
   variable: "--font-baloo",
@@ -17,6 +19,15 @@ const nunito = Nunito({
 export const metadata: Metadata = {
   title: "MK Game Creator",
   description: "Transforme qualquer desenho em um jogo",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "MK Game Creator",
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#241454",
 };
 
 export default function RootLayout({
@@ -29,7 +40,10 @@ export default function RootLayout({
       lang="pt-BR"
       className={`${baloo.variable} ${nunito.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col font-sans">{children}</body>
+      <body className="min-h-full flex flex-col font-sans">
+        <ChunkReloadGuard />
+        {children}
+      </body>
     </html>
   );
 }
