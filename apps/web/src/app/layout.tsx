@@ -3,6 +3,7 @@ import { Baloo_2, Nunito } from "next/font/google";
 import "./globals.css";
 
 import { ChunkReloadGuard } from "@/components/chunk-reload-guard";
+import { ServiceWorkerRegister } from "@/components/sw-register";
 
 const baloo = Baloo_2({
   variable: "--font-baloo",
@@ -42,6 +43,7 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col font-sans">
         <ChunkReloadGuard />
+        <ServiceWorkerRegister />
         {children}
       </body>
     </html>
