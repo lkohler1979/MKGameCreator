@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Check, Gamepad2, Gem, Grid3x3 } from "lucide-react";
+import { BrickWall, Check, CircleDot, Gamepad2, Gem, Grid3x3, Timer } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { WizardHeader } from "@/components/wizard-header";
@@ -33,8 +33,18 @@ function GenerateScreenContent() {
   const [stage, setStage] = useState<"select" | "generating" | "error">("select");
   const [activeStep, setActiveStep] = useState(-1);
   const [errorMessage, setErrorMessage] = useState("");
-  const [templateType, setTemplateType] = useState<"PLATFORM" | "MAZE" | "COLLECT">(
-    () => (searchParams.get("templateType") as "PLATFORM" | "MAZE" | "COLLECT" | null) ?? "PLATFORM",
+  const [templateType, setTemplateType] = useState<
+    "PLATFORM" | "MAZE" | "COLLECT" | "BRICK_BREAKER" | "RACE" | "AIR_HOCKEY"
+  >(
+    () =>
+      (searchParams.get("templateType") as
+        | "PLATFORM"
+        | "MAZE"
+        | "COLLECT"
+        | "BRICK_BREAKER"
+        | "RACE"
+        | "AIR_HOCKEY"
+        | null) ?? "PLATFORM",
   );
   const [hasPendingScene, setHasPendingScene] = useState(false);
 
@@ -127,7 +137,7 @@ function GenerateScreenContent() {
               <p className="text-sm text-muted-foreground">Como você quer jogar?</p>
             </div>
 
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
               <button
                 type="button"
                 onClick={() => setTemplateType("PLATFORM")}
@@ -191,6 +201,72 @@ function GenerateScreenContent() {
                 <p className="font-heading text-sm font-bold text-foreground">Coleta de Itens</p>
                 <p className="text-[11px] text-muted-foreground">
                   Pegue tudo antes do tempo acabar.
+                </p>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setTemplateType("BRICK_BREAKER")}
+                className={cn(
+                  "relative flex flex-col gap-1.5 rounded-2xl border-2 bg-card p-3 text-left transition-colors",
+                  templateType === "BRICK_BREAKER" ? "border-primary" : "border-border",
+                )}
+              >
+                {templateType === "BRICK_BREAKER" && (
+                  <span className="absolute right-3 top-3 flex size-5 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                    <Check className="size-3" />
+                  </span>
+                )}
+                <div className="flex aspect-video items-center justify-center rounded-xl bg-secondary">
+                  <BrickWall className="size-6 text-primary" />
+                </div>
+                <p className="font-heading text-sm font-bold text-foreground">Quebra-blocos</p>
+                <p className="text-[11px] text-muted-foreground">
+                  Rebata a bola e quebre todos os blocos.
+                </p>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setTemplateType("RACE")}
+                className={cn(
+                  "relative flex flex-col gap-1.5 rounded-2xl border-2 bg-card p-3 text-left transition-colors",
+                  templateType === "RACE" ? "border-primary" : "border-border",
+                )}
+              >
+                {templateType === "RACE" && (
+                  <span className="absolute right-3 top-3 flex size-5 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                    <Check className="size-3" />
+                  </span>
+                )}
+                <div className="flex aspect-video items-center justify-center rounded-xl bg-secondary">
+                  <Timer className="size-6 text-primary" />
+                </div>
+                <p className="font-heading text-sm font-bold text-foreground">Corrida</p>
+                <p className="text-[11px] text-muted-foreground">
+                  Pule os obstáculos e sobreviva o máximo possível.
+                </p>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setTemplateType("AIR_HOCKEY")}
+                className={cn(
+                  "relative flex flex-col gap-1.5 rounded-2xl border-2 bg-card p-3 text-left transition-colors",
+                  templateType === "AIR_HOCKEY" ? "border-primary" : "border-border",
+                )}
+              >
+                {templateType === "AIR_HOCKEY" && (
+                  <span className="absolute right-3 top-3 flex size-5 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                    <Check className="size-3" />
+                  </span>
+                )}
+                <div className="flex aspect-video items-center justify-center rounded-xl bg-secondary">
+                  <CircleDot className="size-6 text-primary" />
+                </div>
+                <p className="font-heading text-sm font-bold text-foreground">Air Hockey</p>
+                <p className="text-[11px] text-muted-foreground">
+                  Rebata o disco pro gol e não deixe entrar no seu.
                 </p>
               </button>
             </div>

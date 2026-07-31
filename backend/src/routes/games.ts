@@ -6,7 +6,7 @@ import { containsBannedWords } from "../lib/content-filter.js";
 import { prisma } from "../lib/prisma.js";
 
 const SPRITE_SOURCES = new Set(["DRAWING", "PRESET"]);
-const GAME_TEMPLATES = new Set(["PLATFORM", "MAZE", "COLLECT"]);
+const GAME_TEMPLATES = new Set(["PLATFORM", "MAZE", "COLLECT", "BRICK_BREAKER", "RACE", "AIR_HOCKEY"]);
 const GAME_VISIBILITIES = new Set(["PRIVATE", "PUBLIC"]);
 const LIBRARY_TABS = new Set(["all", "public", "private", "favorites"]);
 

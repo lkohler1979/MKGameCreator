@@ -125,7 +125,13 @@ export default function PlayPage({ params }: { params: Promise<{ id: string }> }
         ? import("@/game/maze-game").then((mod) => mod.MazeGame as unknown as EngineClass)
         : gameData.templateType === "COLLECT"
           ? import("@/game/collect-game").then((mod) => mod.CollectGame as unknown as EngineClass)
-          : import("@/game/platform-game").then((mod) => mod.PlatformGame as unknown as EngineClass);
+          : gameData.templateType === "BRICK_BREAKER"
+            ? import("@/game/brick-breaker-game").then((mod) => mod.BrickBreakerGame as unknown as EngineClass)
+            : gameData.templateType === "RACE"
+              ? import("@/game/race-game").then((mod) => mod.RaceGame as unknown as EngineClass)
+              : gameData.templateType === "AIR_HOCKEY"
+                ? import("@/game/air-hockey-game").then((mod) => mod.AirHockeyGame as unknown as EngineClass)
+                : import("@/game/platform-game").then((mod) => mod.PlatformGame as unknown as EngineClass);
 
     engineModule
       .then((Engine) =>
@@ -162,9 +168,13 @@ export default function PlayPage({ params }: { params: Promise<{ id: string }> }
   }, [gameData, id]);
 
   useEffect(() => {
-    // Labirinto e Coleta de Itens usam o mesmo modelo de movimento livre em 4
-    // direções (sem gravidade/pulo) — a Plataforma é a única com pulo real.
-    const isFreeMovement = gameData?.templateType === "MAZE" || gameData?.templateType === "COLLECT";
+    // Labirinto, Coleta de Itens e Air Hockey usam o mesmo modelo de
+    // movimento livre em 4 direções (sem gravidade/pulo) — Plataforma e
+    // Corrida são os únicos com pulo real.
+    const isFreeMovement =
+      gameData?.templateType === "MAZE" ||
+      gameData?.templateType === "COLLECT" ||
+      gameData?.templateType === "AIR_HOCKEY";
 
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "ArrowLeft") gameRef.current?.moveLeft();
@@ -277,7 +287,7 @@ export default function PlayPage({ params }: { params: Promise<{ id: string }> }
             <Coins className="size-4 text-cta" />
             <span className="font-heading text-sm font-bold">{coins}</span>
           </div>
-          {gameData?.templateType === "COLLECT" && timeRemaining !== null && (
+          {(gameData?.templateType === "COLLECT" || gameData?.templateType === "RACE") && timeRemaining !== null && (
             <div className="flex items-center gap-1 rounded-full bg-white/80 px-3 py-1">
               <Clock className="size-4 text-foreground" />
               <span className="font-heading text-sm font-bold">{timeRemaining}s</span>
@@ -327,7 +337,9 @@ export default function PlayPage({ params }: { params: Promise<{ id: string }> }
       </div>
 
       <div className="flex items-center justify-between px-4 pb-6">
-        {gameData?.templateType === "MAZE" || gameData?.templateType === "COLLECT" ? (
+        {gameData?.templateType === "MAZE" ||
+        gameData?.templateType === "COLLECT" ||
+        gameData?.templateType === "AIR_HOCKEY" ? (
           <div className="grid grid-cols-3 grid-rows-3 gap-1.5">
             <div />
             <button
@@ -375,6 +387,38 @@ export default function PlayPage({ params }: { params: Promise<{ id: string }> }
             </button>
             <div />
           </div>
+        ) : gameData?.templateType === "BRICK_BREAKER" ? (
+          <div className="flex gap-3">
+            <button
+              type="button"
+              aria-label="Mover raquete para esquerda"
+              onPointerDown={() => gameRef.current?.moveLeft()}
+              onPointerUp={() => gameRef.current?.stopMove()}
+              onPointerLeave={() => gameRef.current?.stopMove()}
+              className="flex size-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-md active:scale-95"
+            >
+              <ArrowLeft className="size-6" />
+            </button>
+            <button
+              type="button"
+              aria-label="Mover raquete para direita"
+              onPointerDown={() => gameRef.current?.moveRight()}
+              onPointerUp={() => gameRef.current?.stopMove()}
+              onPointerLeave={() => gameRef.current?.stopMove()}
+              className="flex size-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-md active:scale-95"
+            >
+              <ArrowLeft className="size-6 rotate-180" />
+            </button>
+          </div>
+        ) : gameData?.templateType === "RACE" ? (
+          <button
+            type="button"
+            aria-label="Pular"
+            onPointerDown={() => gameRef.current?.jump()}
+            className="flex size-16 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-md active:scale-95"
+          >
+            <ArrowLeft className="size-7 rotate-90" />
+          </button>
         ) : (
           <>
             <div className="flex gap-3">
@@ -465,8 +509,16 @@ export default function PlayPage({ params }: { params: Promise<{ id: string }> }
 
             <button
               type="button"
-              onClick={handleShare}
+              onClick={handleRestart}
               className="flex w-full items-center justify-center gap-2 rounded-full bg-primary py-3 font-bold text-primary-foreground"
+            >
+              <RotateCcw className="size-4" />
+              Jogar Novamente
+            </button>
+            <button
+              type="button"
+              onClick={handleShare}
+              className="flex w-full items-center justify-center gap-2 rounded-full border border-border py-3 font-bold text-foreground"
             >
               <Share2 className="size-4" />
               Compartilhar
@@ -496,6 +548,10 @@ export default function PlayPage({ params }: { params: Promise<{ id: string }> }
                 Criar Outro
               </Link>
             </div>
+
+            <Link href="/home" className="text-sm font-semibold text-muted-foreground">
+              Fechar e escolher outro jogo
+            </Link>
           </div>
         </div>
       )}
