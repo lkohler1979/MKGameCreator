@@ -114,7 +114,7 @@ export function createGame(input: {
   spriteId: string;
   name: string;
   sceneConfig?: SceneConfig;
-  templateType?: "PLATFORM" | "MAZE" | "COLLECT";
+  templateType?: "PLATFORM" | "MAZE" | "COLLECT" | "BRICK_BREAKER" | "RACE" | "AIR_HOCKEY";
 }) {
   return postJson<{ id: string; shareSlug: string }>("/games", input);
 }

@@ -16,13 +16,14 @@ import {
   ELEMENT_START_X,
   OBSTACLE_MIN_SIZE,
   SCENE_CONFIG_STORAGE_KEY,
+  type EnemyBehavior,
   type PowerupType,
   type SceneConfig,
 } from "@/lib/scene-config-builder";
 import { cn } from "@/lib/utils";
 
 type ObstacleType = "hazard" | "hop" | "enemy" | "destructible" | "dynamic";
-type TemplateType = "PLATFORM" | "MAZE" | "COLLECT";
+type TemplateType = "PLATFORM" | "MAZE" | "COLLECT" | "BRICK_BREAKER" | "RACE" | "AIR_HOCKEY";
 
 const OBSTACLE_TYPE_META: { value: ObstacleType; label: string; emoji: string; color: string }[] = [
   { value: "hop", label: "Pular", emoji: "⬆️", color: "#9ca3af" },
@@ -30,6 +31,18 @@ const OBSTACLE_TYPE_META: { value: ObstacleType; label: string; emoji: string; c
   { value: "enemy", label: "Inimigo", emoji: "👾", color: "#ef4444" },
   { value: "destructible", label: "Destrutível", emoji: "🧱", color: "#9a7b4f" },
   { value: "dynamic", label: "Dinâmico", emoji: "🔀", color: "#8b5cf6" },
+];
+
+const DEFAULT_ENEMY_BEHAVIOR: EnemyBehavior = "perseguidor";
+
+// Só aparece quando o obstáculo selecionado é do tipo "enemy" — define como
+// ele se move/ataca (ver apps/web/src/game/enemy-ai.ts para o comportamento).
+const ENEMY_BEHAVIOR_META: { value: EnemyBehavior; label: string; emoji: string }[] = [
+  { value: "patrulha", label: "Patrulha", emoji: "↔️" },
+  { value: "perseguidor", label: "Perseguidor", emoji: "👁️" },
+  { value: "voador", label: "Voador", emoji: "🪽" },
+  { value: "saltador", label: "Saltador", emoji: "🦘" },
+  { value: "atirador", label: "Atirador", emoji: "🎯" },
 ];
 
 const POWERUP_TYPE_META: { value: PowerupType; label: string; emoji: string }[] = [
@@ -53,6 +66,7 @@ type EditorObstacle = {
   width: number;
   height: number;
   imageUrl?: string;
+  enemyBehavior?: EnemyBehavior;
 };
 type EditorPowerup = { id: string; x: number; y: number; type: PowerupType; imageUrl?: string };
 
@@ -139,6 +153,7 @@ function EditPageContent() {
         width: obstacle.width,
         height: obstacle.height,
         imageUrl: obstacle.imageUrl,
+        enemyBehavior: obstacle.type === "enemy" ? obstacle.enemyBehavior ?? DEFAULT_ENEMY_BEHAVIOR : undefined,
       })),
       powerups: powerups.map((powerup) => ({
         x: powerup.x,
@@ -307,7 +322,16 @@ function EditPageContent() {
                           type="button"
                           onClick={() =>
                             setObstacles((prev) =>
-                              prev.map((o) => (o.id === selected.id ? { ...o, type: meta.value } : o)),
+                              prev.map((o) =>
+                                o.id === selected.id
+                                  ? {
+                                      ...o,
+                                      type: meta.value,
+                                      enemyBehavior:
+                                        meta.value === "enemy" ? o.enemyBehavior ?? DEFAULT_ENEMY_BEHAVIOR : o.enemyBehavior,
+                                    }
+                                  : o,
+                              ),
                             )
                           }
                           className={cn(
@@ -320,6 +344,37 @@ function EditPageContent() {
                         </button>
                       );
                     })}
+                  {selected.kind === "obstacle" &&
+                    obstacles.find((o) => o.id === selected.id)?.type === "enemy" && (
+                      <>
+                        <span className="mx-1 h-5 w-px bg-border" aria-hidden />
+                        {ENEMY_BEHAVIOR_META.map((meta) => {
+                          const current = obstacles.find((o) => o.id === selected.id);
+                          return (
+                            <button
+                              key={meta.value}
+                              type="button"
+                              onClick={() =>
+                                setObstacles((prev) =>
+                                  prev.map((o) =>
+                                    o.id === selected.id ? { ...o, enemyBehavior: meta.value } : o,
+                                  ),
+                                )
+                              }
+                              className={cn(
+                                "flex size-8 items-center justify-center rounded-lg text-base",
+                                (current?.enemyBehavior ?? DEFAULT_ENEMY_BEHAVIOR) === meta.value
+                                  ? "bg-primary/15"
+                                  : "hover:bg-muted",
+                              )}
+                              aria-label={meta.label}
+                            >
+                              {meta.emoji}
+                            </button>
+                          );
+                        })}
+                      </>
+                    )}
                   {selected.kind === "powerup" &&
                     POWERUP_TYPE_META.map((meta) => {
                       const current = powerups.find((p) => p.id === selected.id);
@@ -640,13 +695,20 @@ function ListEditor({
               <div className="flex items-center gap-2">
                 <select
                   value={obstacle.type}
-                  onChange={(e) =>
+                  onChange={(e) => {
+                    const type = e.target.value as ObstacleType;
                     setObstacles((prev) =>
                       prev.map((o) =>
-                        o.id === obstacle.id ? { ...o, type: e.target.value as ObstacleType } : o,
+                        o.id === obstacle.id
+                          ? {
+                              ...o,
+                              type,
+                              enemyBehavior: type === "enemy" ? o.enemyBehavior ?? DEFAULT_ENEMY_BEHAVIOR : o.enemyBehavior,
+                            }
+                          : o,
                       ),
-                    )
-                  }
+                    );
+                  }}
                   className="rounded-lg border border-border bg-background px-2 py-1 text-sm"
                 >
                   {OBSTACLE_TYPE_META.map((option) => (
@@ -655,6 +717,26 @@ function ListEditor({
                     </option>
                   ))}
                 </select>
+                {obstacle.type === "enemy" && (
+                  <select
+                    value={obstacle.enemyBehavior ?? DEFAULT_ENEMY_BEHAVIOR}
+                    onChange={(e) =>
+                      setObstacles((prev) =>
+                        prev.map((o) =>
+                          o.id === obstacle.id ? { ...o, enemyBehavior: e.target.value as EnemyBehavior } : o,
+                        ),
+                      )
+                    }
+                    className="rounded-lg border border-border bg-background px-2 py-1 text-sm"
+                    aria-label="Comportamento do inimigo"
+                  >
+                    {ENEMY_BEHAVIOR_META.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.emoji} {option.label}
+                      </option>
+                    ))}
+                  </select>
+                )}
                 <button
                   type="button"
                   onClick={() => deleteObstacle(obstacle.id)}

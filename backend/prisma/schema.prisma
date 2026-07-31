@@ -24,6 +24,9 @@ enum GameTemplate {
   PLATFORM
   MAZE
   COLLECT
+  BRICK_BREAKER
+  RACE
+  AIR_HOCKEY
 }
 
 enum GameVisibility {

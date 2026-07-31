@@ -93,6 +93,10 @@ export class GameAudio {
     this.playTone(880, 0.18, { startFreq: 440, type: "triangle", volume: 0.2 });
   }
 
+  playBounce() {
+    this.playTone(523.25, 0.08, { type: "square", volume: 0.12 });
+  }
+
   playWin() {
     if (!this.ensureContext()) return;
     [523.25, 659.25, 783.99, 1046.5].forEach((freq, index) => {
