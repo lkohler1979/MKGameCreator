@@ -2,9 +2,22 @@ import Matter from "matter-js";
 import * as PIXI from "pixi.js";
 
 import { GameAudio } from "@/game/audio";
+import {
+  aimDirection,
+  computeEnemyTarget,
+  ENEMY_DEFAULT_SPEED,
+  ENEMY_DEFAULT_VISION_RANGE,
+  ENEMY_SHOOT_INTERVAL_MS,
+  jumpOffset,
+  patrolOffset,
+  PROJECTILE_LIFETIME_MS,
+  PROJECTILE_SIZE,
+  PROJECTILE_SPEED,
+  shouldShoot,
+} from "@/game/enemy-ai";
 import type { GameEngine, GameEngineCallbacks, GameEngineOptions } from "@/game/game-engine";
 import { LEVEL_HEIGHT, LEVEL_WIDTH } from "@/game/level-constants";
-import type { PowerupType, SceneConfig } from "@/lib/scene-config-builder";
+import type { EnemyBehavior, PowerupType, SceneConfig } from "@/lib/scene-config-builder";
 
 const WALL_THICKNESS = 12;
 const PLAYER_RADIUS = 18;
@@ -12,8 +25,6 @@ const MOVE_SPEED = 4;
 const COIN_RADIUS = 14;
 const POWERUP_RADIUS = 16;
 const OBSTACLE_SIZE = 36;
-const ENEMY_CHASE_SPEED = 1.8;
-const ENEMY_LEASH_RANGE = 180;
 const MIN_SPAWN_DISTANCE = 60;
 const TIME_LIMIT_SECONDS = 60;
 const START_LIVES = 3;
@@ -70,7 +81,19 @@ export class CollectGame implements GameEngine {
   private coinEntities: { body: Matter.Body; graphic: PIXI.Container }[] = [];
   private powerupEntities: { body: Matter.Body; graphic: PIXI.Container; type: PowerupType }[] = [];
   private destructibleEntities: { body: Matter.Body; graphic: PIXI.Container }[] = [];
-  private enemyEntities: { body: Matter.Body; graphic: PIXI.Container; spawnX: number; spawnY: number }[] = [];
+  private enemyEntities: {
+    body: Matter.Body;
+    graphic: PIXI.Container;
+    spawnX: number;
+    spawnY: number;
+    behavior: EnemyBehavior;
+    speed: number;
+    visionRange: number;
+    phase: number;
+    lastShotAt: number;
+  }[] = [];
+  private projectileEntities: { body: Matter.Body; graphic: PIXI.Container; spawnAt: number; vx: number; vy: number }[] =
+    [];
 
   private direction: Direction = null;
   private invulnerableUntil = 0;
@@ -217,7 +240,17 @@ export class CollectGame implements GameEngine {
       this.app.stage.addChild(graphic);
 
       if (obstacle.type === "enemy") {
-        this.enemyEntities.push({ body, graphic, spawnX: x, spawnY: y });
+        this.enemyEntities.push({
+          body,
+          graphic,
+          spawnX: x,
+          spawnY: y,
+          behavior: obstacle.enemyBehavior ?? "perseguidor",
+          speed: obstacle.speed ?? ENEMY_DEFAULT_SPEED,
+          visionRange: obstacle.visionRange ?? ENEMY_DEFAULT_VISION_RANGE,
+          phase: Math.random() * 1000,
+          lastShotAt: 0,
+        });
       } else if (isDestructible) {
         this.destructibleEntities.push({ body, graphic });
       } else {
@@ -322,7 +355,19 @@ export class CollectGame implements GameEngine {
       this.audio.playCoin();
     }
 
-    if ((other.label === "hazard" || other.label === "enemy") && Date.now() > this.invulnerableUntil) {
+    if (other.label === "projectile") {
+      const entity = this.projectileEntities.find((projectile) => projectile.body === other);
+      if (entity) {
+        Matter.World.remove(this.engine.world, entity.body);
+        entity.graphic.destroy();
+        this.projectileEntities = this.projectileEntities.filter((projectile) => projectile !== entity);
+      }
+    }
+
+    if (
+      (other.label === "hazard" || other.label === "enemy" || other.label === "projectile") &&
+      Date.now() > this.invulnerableUntil
+    ) {
       this.invulnerableUntil = Date.now() + INVULNERABILITY_MS;
       this.lives -= 1;
       this.callbacks.onLivesChange?.(this.lives);
@@ -333,6 +378,26 @@ export class CollectGame implements GameEngine {
         this.audio.playLose();
       }
     }
+  }
+
+  private spawnProjectile(x: number, y: number, direction: { x: number; y: number }) {
+    const body = Matter.Bodies.circle(x, y, PROJECTILE_SIZE / 2, {
+      isStatic: true,
+      isSensor: true,
+      label: "projectile",
+    });
+    this.addBody(body);
+    const graphic = new PIXI.Graphics().circle(0, 0, PROJECTILE_SIZE / 2).fill(0xef4444);
+    graphic.x = x;
+    graphic.y = y;
+    this.app.stage.addChild(graphic);
+    this.projectileEntities.push({
+      body,
+      graphic,
+      spawnAt: Date.now(),
+      vx: direction.x * PROJECTILE_SPEED,
+      vy: direction.y * PROJECTILE_SPEED,
+    });
   }
 
   private applyPowerup(type: PowerupType) {
@@ -371,25 +436,69 @@ export class CollectGame implements GameEngine {
       if (this.direction === "down") velocity.y = MOVE_SPEED;
       Matter.Body.setVelocity(this.playerBody, velocity);
 
-      // Persegue o jogador nos dois eixos, sem sair do raio de perseguição a
-      // partir do spawn - mais lento que o jogador pra dar pra fugir.
-      const enemyStep = ENEMY_CHASE_SPEED * (ticker.deltaMS / 16.67);
+      // Cada inimigo se move conforme seu enemyBehavior (ver enemy-ai.ts).
+      // A arena é aberta em 2D (sem chão fixo) - aqui "voador" não se
+      // distingue de "perseguidor" (ambos perseguem livremente nos dois
+      // eixos); "saltador" ganha um solavanco vertical sobre a patrulha.
+      const playerPos = { x: this.playerBody.position.x, y: this.playerBody.position.y };
       for (const enemy of this.enemyEntities) {
-        const minX = enemy.spawnX - ENEMY_LEASH_RANGE;
-        const maxX = enemy.spawnX + ENEMY_LEASH_RANGE;
-        const minY = enemy.spawnY - ENEMY_LEASH_RANGE;
-        const maxY = enemy.spawnY + ENEMY_LEASH_RANGE;
-        const targetX = Math.max(minX, Math.min(maxX, this.playerBody.position.x));
-        const targetY = Math.max(minY, Math.min(maxY, this.playerBody.position.y));
-        const dx = targetX - enemy.body.position.x;
-        const dy = targetY - enemy.body.position.y;
-        const distance = Math.hypot(dx, dy);
-        const x = distance > 1 ? enemy.body.position.x + (dx / distance) * enemyStep : enemy.body.position.x;
-        const y = distance > 1 ? enemy.body.position.y + (dy / distance) * enemyStep : enemy.body.position.y;
+        let x: number;
+        let y: number;
+
+        if (enemy.behavior === "saltador") {
+          x = enemy.spawnX + patrolOffset(this.elapsedMs, enemy.phase);
+          y = enemy.spawnY + jumpOffset(this.elapsedMs, enemy.phase);
+        } else {
+          const stepPerTick = enemy.speed * (ticker.deltaMS / 16.67);
+          const target = computeEnemyTarget(
+            enemy.behavior,
+            { x: enemy.spawnX, y: enemy.spawnY },
+            { x: enemy.body.position.x, y: enemy.body.position.y },
+            playerPos,
+            this.elapsedMs,
+            stepPerTick,
+            enemy.visionRange,
+            enemy.phase,
+            true,
+          );
+          x = target.x;
+          y = target.y;
+        }
+
         Matter.Body.setPosition(enemy.body, { x, y });
         enemy.graphic.x = x;
         enemy.graphic.y = y;
+
+        if (
+          enemy.behavior === "atirador" &&
+          shouldShoot(enemy.lastShotAt, Date.now(), ENEMY_SHOOT_INTERVAL_MS, { x, y }, playerPos, enemy.visionRange)
+        ) {
+          enemy.lastShotAt = Date.now();
+          this.spawnProjectile(x, y, aimDirection({ x, y }, playerPos));
+        }
       }
+
+      for (const projectile of this.projectileEntities) {
+        const x = projectile.body.position.x + projectile.vx;
+        const y = projectile.body.position.y + projectile.vy;
+        Matter.Body.setPosition(projectile.body, { x, y });
+        projectile.graphic.x = x;
+        projectile.graphic.y = y;
+      }
+      this.projectileEntities = this.projectileEntities.filter((projectile) => {
+        const expired = Date.now() - projectile.spawnAt > PROJECTILE_LIFETIME_MS;
+        const outOfBounds =
+          projectile.body.position.x < -20 ||
+          projectile.body.position.x > LEVEL_WIDTH + 20 ||
+          projectile.body.position.y < -20 ||
+          projectile.body.position.y > LEVEL_HEIGHT + 20;
+        if (expired || outOfBounds) {
+          Matter.World.remove(this.engine.world, projectile.body);
+          projectile.graphic.destroy();
+          return false;
+        }
+        return true;
+      });
 
       Matter.Engine.update(this.engine, ticker.deltaMS);
 
@@ -470,6 +579,10 @@ export class CollectGame implements GameEngine {
       Matter.World.remove(this.engine.world, enemy.body);
       enemy.graphic.destroy();
     }
+    for (const projectile of this.projectileEntities) {
+      Matter.World.remove(this.engine.world, projectile.body);
+      projectile.graphic.destroy();
+    }
     this.playerSprite.destroy();
     this.shieldGraphic.destroy();
 
@@ -479,6 +592,7 @@ export class CollectGame implements GameEngine {
     this.powerupEntities = [];
     this.destructibleEntities = [];
     this.enemyEntities = [];
+    this.projectileEntities = [];
     this.direction = null;
     this.invulnerableUntil = 0;
     this.doubleCoinsUntil = 0;

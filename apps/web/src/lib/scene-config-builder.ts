@@ -6,6 +6,10 @@ export const SCENE_CONFIG_STORAGE_KEY = "mkgc.pendingSceneConfig";
 
 export type PowerupType = "extra_life" | "shield" | "double_coins";
 
+// Só se aplica a obstáculos do tipo "enemy" — default é "perseguidor" quando
+// ausente, pra manter o comportamento de cenários já salvos antes desta fase.
+export type EnemyBehavior = "patrulha" | "perseguidor" | "voador" | "saltador" | "atirador";
+
 export type SceneConfig = {
   groundY: number;
   sky?: string;
@@ -17,6 +21,10 @@ export type SceneConfig = {
     width: number;
     height: number;
     imageUrl?: string;
+    enemyBehavior?: EnemyBehavior;
+    visionRange?: number;
+    speed?: number;
+    shootIntervalMs?: number;
   }[];
   powerups: { x: number; y: number; type: PowerupType; imageUrl?: string }[];
   flag: { x: number; y: number };
